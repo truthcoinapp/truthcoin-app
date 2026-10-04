@@ -165,10 +165,12 @@ pub fn open_pair(d: &SecretKey, c: &[u8], env: &Envelope) -> Result<(Vec<u8>, Pu
     Ok((gcm_open(&k, &nonce_of(env)?, &unb64u(&env.ct)?, &aad)?, e_pub))
 }
 
-/// The comparison code both screens show at pairing: SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C), the
-/// first 4 bytes big-endian, modulo 1,000,000, as 6 digits in two groups of three ("042 917").
-pub fn pair_code(d_pub: &PublicKey, p_pub: &PublicKey, e_pub: &PublicKey, c: &[u8]) -> String {
-    let h = sha256(&concat(&[SAS_LABEL, &pub_bytes(d_pub), &pub_bytes(p_pub), &pub_bytes(e_pub), c]));
+/// The comparison code both screens show at pairing: SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C || N),
+/// the first 4 bytes big-endian, modulo 1,000,000, as 6 digits in two groups of three ("042 917"). N is the desktop's
+/// 16-byte commitment nonce, chosen after the phone's request (P, E) is fixed, so the phone can't grind its keys for a
+/// code it wants.
+pub fn pair_code(d_pub: &PublicKey, p_pub: &PublicKey, e_pub: &PublicKey, c: &[u8], n: &[u8]) -> String {
+    let h = sha256(&concat(&[SAS_LABEL, &pub_bytes(d_pub), &pub_bytes(p_pub), &pub_bytes(e_pub), c, n]));
     let n = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) % 1_000_000;
     let s = format!("{n:06}");
     format!("{} {}", &s[..3], &s[3..])

@@ -151,11 +151,15 @@ async fn pair_then_ask_through_a_relay_that_duplicates() {
     let ev = ph.nk.message(&nd, serde_json::to_string(&env).unwrap(), now());
     ph.publish(ev).await;
 
-    // The desktop shows the phone and the same comparison code the phone computes.
+    // The desktop sends its commitment nonce, then shows the phone and the same comparison code the phone computes.
+    let nonce_msg = ph.reply(&d_pub, 5).await.expect("the commitment nonce");
+    assert_eq!(nonce_msg["re"], pair_id);
+    let n = unb64u(nonce_msg["nonce"].as_str().unwrap()).unwrap();
+    assert_eq!(n.len(), 16);
     wait_for(|| desk.pair_state()["state"] == "claimed").await;
     let st = desk.pair_state();
     assert_eq!(st["name"], "Testphone");
-    assert_eq!(st["code"], pair_code(&d_pub, &ph.p.public_key(), &e.public_key(), &c));
+    assert_eq!(st["code"], pair_code(&d_pub, &ph.p.public_key(), &e.public_key(), &c, &n));
     desk.pair_answer(true).unwrap();
     let rep = ph.reply(&d_pub, 5).await.expect("the pairing answer");
     assert_eq!(rep["re"], pair_id);
@@ -179,6 +183,7 @@ async fn pair_then_ask_through_a_relay_that_duplicates() {
     assert!(rep["err"].as_str().unwrap().contains("clock"));
 
     // A method the door doesn't have.
+    // (unpair is checked last, below.)
     let id3 = "33333333333333333333333333333333";
     ph.publish(ph.request(&d_pub, &nd, id3, now(), "withdraw")).await;
     let rep = ph.reply(&d_pub, 5).await.unwrap();
@@ -194,6 +199,14 @@ async fn pair_then_ask_through_a_relay_that_duplicates() {
     let ev = ph.nk.message(&nd, serde_json::to_string(&forged).unwrap(), now());
     ph.publish(ev).await;
     assert!(ph.reply(&d_pub, 1).await.is_none(), "sealed by another key: dropped");
+
+    // The phone forgets this computer: the desktop answers, then forgets the phone; it gets no answers after that.
+    ph.publish(ph.request(&d_pub, &nd, "66666666666666666666666666666666", now(), "unpair")).await;
+    let rep = ph.reply(&d_pub, 5).await.unwrap();
+    assert_eq!(rep["ok"]["unpaired"], true);
+    wait_for(|| desk.devices().is_empty()).await;
+    ph.publish(ph.request(&d_pub, &nd, "77777777777777777777777777777777", now(), "status")).await;
+    assert!(ph.reply(&d_pub, 1).await.is_none());
 }
 
 #[tokio::test]

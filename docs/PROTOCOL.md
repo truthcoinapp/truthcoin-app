@@ -40,21 +40,29 @@ anything. `r` lists at most 5 relays, `wss://` only.
    content = JSON {"v":1, "k":"pair", "e":b64u(E_pub), "n":b64u(nonce), "ct":b64u(ct)}
    plaintext = {"t":"pair", "p":b64u(P_pub), "np":"<nP hex>", "name":"<device name>", "id":"<request id>"}, padded
    ```
-2. The desktop opens it with the live `C`, checks that `np` is the event's own pubkey, and asks: "Allow this phone?
-   <name>", showing the **comparison code**:
-   `SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C)`, the first 4 bytes big-endian, mod 1,000,000, as six
-   digits in two groups ("042 917"). The phone shows the same code. Someone who saw the QR code can send a request
-   too, but can't make the codes match.
-3. The first request that opens claims `C`; any later one is ignored. Allowing or refusing uses `C` up.
-4. The desktop answers with a **sealed message** (never clear text) under the request's id:
+2. The desktop opens it with the live `C` and checks that `np` is the event's own pubkey. The first request that
+   opens claims `C`. The desktop picks a random 16-byte **commitment nonce** `N` and sends it to the claimant, sealed
+   (D to P): `{"re":"<id>", "nonce":b64u(N)}`. Only then does it ask "Allow this phone? <name>", showing the
+   **comparison code**: `SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C || N)`, the first 4 bytes
+   big-endian, mod 1,000,000, as six digits in two groups ("042 917"). The phone shows the same code once it has `N`.
+   Because `N` is chosen after the phone's `P` and `E` are fixed, nobody can search for keys that give a code they
+   want: someone who saw the QR code can send a request too, but can't make the codes match.
+3. The same phone (same `P` and `nP`) asking again gets the same `N` again (its answer may have been lost). A request
+   from another key while a claim is shown means the code is out: the pairing is **contested** and can only be
+   refused. Allowing or refusing uses `C` up.
+4. After the desktop's yes, the phone asks its user to confirm that the computer showed this code and that they
+   allowed it there; a rogue "desktop" from a crafted link can answer yes at once, but can't make the user's own
+   computer ask. Pairing links whose expiry `x` is more than 10 minutes ahead are refused, and an attempt never
+   restarts by itself after a reload.
+5. The desktop answers with a **sealed message** (never clear text) under the request's id:
    `{"re":"<id>", "ok":{"paired":true, "name":"<name as shown>", "limit_sats":<daily limit>}}` or
    `{"re":"<id>", "err":"not allowed"}`.
-5. Device names are cut to 40 characters, with control and format characters (bidi overrides, zero-width) removed.
-6. **A lost answer:** if every relay drops the desktop's pairing answer, resending the request doesn't help (a repeat
+6. Device names are cut to 40 characters, with control and format characters (bidi overrides, zero-width) removed.
+7. **A lost answer:** if every relay drops the desktop's pairing answer, resending the request doesn't help (a repeat
    of the same event is a duplicate, and `C` is used up). So while it waits, the phone also sends a sealed `status`
    request from `P` every 5 seconds. The desktop drops those until it has allowed the phone, then answers one: that
    answer proves the pairing.
-7. **Fingerprint:** both screens can show the desktop key's fingerprint, the first 6 bytes of SHA-256(D_pub) in hex,
+8. **Fingerprint:** both screens can show the desktop key's fingerprint, the first 6 bytes of SHA-256(D_pub) in hex,
    in three groups of four (`keys.D.fingerprint` in the test vectors).
 
 ## Events (NIP-01)
@@ -132,6 +140,7 @@ from 0. Fields the node may not give can be `null` or missing: `status.height` (
 | `trade` | `{"id","outcome","shares","side","limit"}` | `{"status":"pending","txid"}`, or `held` first when over the phone's limit. `limit` is the phone's cap: at most this (buy, miner fee included), at least this (sell) |
 | `trades` | — | `{"trades":[{"id","time","title","label","side","shares","sats","limit","status","txid"}]}`: this phone's last 20 |
 | `receive` | — | `{"address","deposit_address"}` |
+| `unpair` | — | `{"unpaired":true}`, then the desktop forgets the phone (its "Forget this computer") |
 
 Never reachable from a phone: sending coins, withdrawing, creating markets, voting, the wallet's words, raw node calls.
 

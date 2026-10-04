@@ -104,6 +104,8 @@ struct Claim {
     name: String,
     p: String,
     np: String,
+    /// The commitment nonce sent to this phone; the code is over it.
+    nonce: [u8; 16],
     code: String,
 }
 
@@ -431,7 +433,14 @@ impl Phone {
         self.stop_if_idle();
     }
 
-    fn try_pair(&self, ev: &Event, env: &Envelope) -> Option<()> {
+    /// A pairing request: the first one that opens with the live code claims it, and gets the commitment nonce; the
+    /// same phone asking again gets the same nonce again; another phone makes it contested.
+    fn try_pair(&self, ev: &Event, env: &Envelope) {
+        let Some((p_pub, np, reply)) = self.claim(ev, env) else { return };
+        self.send(&p_pub, &np, &reply);
+    }
+
+    fn claim(&self, ev: &Event, env: &Envelope) -> Option<(PublicKey, String, Value)> {
         let mut g = self.pairing.lock().unwrap();
         let p = g.as_mut()?;
         if p.result.is_some() || p.expires < now() {
@@ -439,12 +448,17 @@ impl Phone {
         }
         let (pt, e_pub) = crypto::open_pair(&self.d, &p.c, env).ok()?;
         if let Some(c) = &p.claim {
-            // A request that opens with the live code from another phone, while one is shown: the code is out.
+            // The same phone asking again (its answer was lost) gets the same nonce; another phone, while one is
+            // shown, means the code is out.
             let other = serde_json::from_slice::<Value>(&pt)
                 .ok()
                 .and_then(|v| v["p"].as_str().and_then(|k| parse_pub(k).ok()))
                 .map(|k| pub_b64u(&k));
-            if other.is_some_and(|o| o != c.p) {
+            if other.as_deref() == Some(c.p.as_str()) && ev.pubkey == c.np {
+                let reply = json!({"re": c.id, "nonce": b64u(&c.nonce)});
+                return Some((parse_pub(&c.p).ok()?, c.np.clone(), reply));
+            }
+            if other.is_some() {
                 p.contested = true;
             }
             return None;
@@ -455,15 +469,18 @@ impl Phone {
         }
         let id = v["id"].as_str().filter(|i| valid_id(i))?.to_string();
         let p_pub = parse_pub(v["p"].as_str()?).ok()?;
-        let code = crypto::pair_code(&self.d.public_key(), &p_pub, &e_pub, &p.c);
+        let nonce: [u8; 16] = rand::random();
+        let code = crypto::pair_code(&self.d.public_key(), &p_pub, &e_pub, &p.c, &nonce);
+        let reply = json!({"re": id, "nonce": b64u(&nonce)});
         p.claim = Some(Claim {
             id,
             name: crypto::clean_name(v["name"].as_str().unwrap_or("")),
             p: pub_b64u(&p_pub),
             np: ev.pubkey.clone(),
+            nonce,
             code,
         });
-        Some(())
+        Some((p_pub, ev.pubkey.clone(), reply))
     }
 
     // --- requests ---
@@ -508,6 +525,13 @@ impl Phone {
             return self.send(&p_pub, &dev.np, &r);
         }
         let m = req["m"].as_str().unwrap_or("");
+        if m == "unpair" {
+            // The phone forgot this computer: answer, then forget the phone.
+            self.send(&p_pub, &dev.np, &json!({"re": id, "ok": {"unpaired": true}}));
+            let _ = self.revoke(&dev.np);
+            crate::activity::note(&self.node.dir, &format!("phone {} unpaired itself", dev.name));
+            return;
+        }
         let reply = if m == "trade" {
             self.trade(&dev, &id, &req["a"]).await
         } else {

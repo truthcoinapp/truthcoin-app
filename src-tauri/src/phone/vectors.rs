@@ -53,7 +53,8 @@ fn build() -> Value {
             "nonce": b64u(&[1u8; 12]),
             "plaintext": String::from_utf8(pair_pt).unwrap(),
             "envelope": pair_env,
-            "comparison_code": pair_code(&d.public_key(), &p.public_key(), &e1.public_key(), &c)
+            "N": b64u(&[0x4eu8; 16]),
+            "comparison_code": pair_code(&d.public_key(), &p.public_key(), &e1.public_key(), &c, &[0x4eu8; 16])
         },
         "request": {"from": "P", "to": "D", "ephemeral": "E2", "nonce": b64u(&[2u8; 12]),
                     "plaintext": String::from_utf8(req).unwrap(), "envelope": req_env},
