@@ -1,0 +1,89 @@
+name: ci
+
+# Every push to a branch and every pull request: the desktop's Rust tests and screens, and the phone page's tests and
+# build. The dependency audits report, but don't fail the run. Tags are release.yml's.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Tauri's system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential pkg-config
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20.20.2
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # 2026-09-29
+        with:
+          toolchain: 1.98.1
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - run: npm ci --ignore-scripts
+      # The Rust side embeds the built screens (frontendDist ../dist), so they are built before it compiles.
+      - run: npm run build
+      - run: cargo test --locked
+        working-directory: src-tauri
+
+  phone:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: phone
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20.20.2
+          cache: npm
+          cache-dependency-path: phone/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build
+
+  audit:
+    runs-on: ubuntu-latest
+    # Advisories appear without any change here, so they report (this job fails) but don't fail the run.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # 2026-09-29
+        with:
+          toolchain: 1.98.1
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - name: cargo audit
+        run: cargo audit --file src-tauri/Cargo.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: ${{ !cancelled() }}
+        with:
+          node-version: 20.20.2
+      # Each audit runs even when the one before it found something.
+      - name: npm audit (desktop)
+        if: ${{ !cancelled() }}
+        run: npm audit --omit=dev
+      - name: npm audit (phone)
+        if: ${{ !cancelled() }}
+        working-directory: phone
+        run: npm audit --omit=dev

@@ -1,0 +1,54 @@
+[package]
+name = "truthcoin-app"
+version = "0.1.0"
+description = "Truthcoin App: run a Truthcoin node and trade its prediction markets, from the desktop or a paired phone"
+authors = ["The Truthcoin App developers"]
+license = "MIT"
+repository = "https://github.com/mblowes/truthcoin-app"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+# The release signature: SHA256SUMS.sig (OpenSSH, ed25519) against the pinned release key
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519"] }
+# The phone link (docs/PROTOCOL.md): P-256 ECDH, HKDF, AES-256-GCM for the sealed messages, and BIP340 Schnorr
+# (secp256k1) for the Nostr events that carry them, over WebSockets to public relays
+p256 = { version = "0.13", features = ["ecdh", "pkcs8"] }
+k256 = { version = "0.13", features = ["schnorr"] }
+hkdf = "0.12"
+aes-gcm = "0.10"
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+url = "2"
+zeroize = "1"
+# Deposits from eCash: the enforcer's gRPC (WalletService.CreateDepositTransaction), messages written here
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"

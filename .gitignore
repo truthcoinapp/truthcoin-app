@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+phone/node_modules/
+phone/dist/
+dev/bin/
+*.log
+.DS_Store

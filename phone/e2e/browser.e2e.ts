@@ -1,0 +1,304 @@
+// The built page in real browsers (Playwright's Chromium and WebKit, headless, 390 px wide):
+//  - dist/ (the GitHub Pages build): the not-paired screen renders without console errors, and `#pair=` is read and
+//    stripped from the address bar before anything renders;
+//  - dist-local/ (the build that accepts ws://127.0.0.1 relays): a full run through dev/test-relay.mjs against the
+//    test desktop: pair (same comparison code on both ends), Home, Markets, a market, a buy held over the limit until
+//    the desktop confirms it, a reload that stays paired with a non-extractable key, and "Forget this computer".
+// Screenshots go to e2e/shots/<engine>/. Browsers: PLAYWRIGHT_BROWSERS_PATH, else Playwright's default folder; an
+// engine whose browser isn't installed is skipped.
+import http from 'node:http';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, devices, webkit, type Browser, type BrowserContext, type BrowserType, type Page } from 'playwright';
+import WebSocket from 'ws';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { b64u, utf8 } from '../src/lib/bytes';
+import type { WsFactory, WsLike } from '../src/lib/relaypool';
+import { TestDesktop, VECTOR_D } from '../src/lib/testing/desktop';
+
+const here = fileURLToPath(new URL('.', import.meta.url));
+const DIST = resolve(here, '../dist');
+const DIST_LOCAL = resolve(here, '../dist-local');
+const RELAY = resolve(here, '../../dev/test-relay.mjs');
+const nodeWs: WsFactory = (url) => new WebSocket(url) as unknown as WsLike;
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.png': 'image/png',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+};
+
+/** A static server for a built folder on 127.0.0.1 (no extra headers, like GitHub Pages: the page's own CSP rules). */
+function serve(dir: string): Promise<{ base: string; close: () => void }> {
+  const server = http.createServer((req, res) => {
+    const p = normalize(decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+    let f = join(dir, p === '/' ? 'index.html' : p);
+    if (!f.startsWith(dir) || !existsSync(f) || statSync(f).isDirectory()) f = join(dir, 'index.html');
+    res.writeHead(200, { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(readFileSync(f));
+  });
+  return new Promise((ok) =>
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as { port: number }).port;
+      ok({ base: `http://127.0.0.1:${port}`, close: () => server.close() });
+    }),
+  );
+}
+
+function startRelay(env: Record<string, string> = {}): Promise<{ url: string; proc: ChildProcess }> {
+  return new Promise((ok, fail) => {
+    const proc = spawn(process.execPath, [RELAY, '0'], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
+    let out = '';
+    proc.stdout!.on('data', (d) => {
+      out += String(d);
+      const m = out.match(/listening on (ws:\/\/127\.0\.0\.1:\d+)/);
+      if (m) ok({ url: m[1], proc });
+    });
+    proc.on('exit', (c) => fail(new Error(`relay exited ${c}`)));
+  });
+}
+
+
+/** Ask `get` until `ok` holds; fail with the last value after `ms`. */
+async function eventually<T>(get: () => T | Promise<T>, ok: (v: T) => boolean, ms = 10_000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await get();
+    if (ok(v)) return v;
+    if (Date.now() > end) throw new Error(`still: ${String(JSON.stringify(v)).slice(0, 400)}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+const engines: [string, BrowserType][] = [
+  ['chromium', chromium],
+  ['webkit', webkit],
+];
+const installed = (b: BrowserType) => {
+  try {
+    return existsSync(b.executablePath());
+  } catch {
+    return false;
+  }
+};
+
+let prod: Awaited<ReturnType<typeof serve>>;
+let local: Awaited<ReturnType<typeof serve>>;
+let relay: { url: string; proc: ChildProcess };
+
+beforeAll(async () => {
+  if (!existsSync(join(DIST, 'index.html')) || !existsSync(join(DIST_LOCAL, 'index.html'))) {
+    throw new Error('Build first: npm run build && npm run build:local');
+  }
+  prod = await serve(DIST);
+  local = await serve(DIST_LOCAL);
+  relay = await startRelay({ RELAY_DUP: '1', RELAY_REORDER_MS: '30' });
+});
+afterAll(() => {
+  prod?.close();
+  local?.close();
+  relay?.proc.kill('SIGTERM');
+});
+
+for (const [name, type] of engines) {
+  describe.skipIf(!installed(type))(name, () => {
+    let browser: Browser;
+    let ctx: BrowserContext;
+    let page: Page;
+    let errors: string[] = [];
+    const shots = resolve(here, 'shots', name);
+    let n = 0;
+    const shot = async (what: string) => {
+      mkdirSync(shots, { recursive: true });
+      await page.screenshot({ path: join(shots, `${String(++n).padStart(2, '0')}-${what}.png`), fullPage: true });
+    };
+
+    beforeAll(async () => {
+      browser = await type.launch({ headless: true });
+      // WebKit plays an iPhone (its user agent), so the page takes the iPhone path: Home Screen first.
+      ctx = await browser.newContext({
+        ...(name === 'webkit' ? devices['iPhone 14'] : { isMobile: true, hasTouch: true }),
+        viewport: { width: 390, height: 844 },
+        deviceScaleFactor: 2,
+        colorScheme: 'dark',
+      });
+      page = await ctx.newPage();
+      page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+      page.on('pageerror', (e) => errors.push(String(e)));
+      // When the page first renders anything, note what the address bar said.
+      await page.addInitScript(() => {
+        new MutationObserver((_m, o) => {
+          if (document.getElementById('app')?.childElementCount) {
+            (window as unknown as { hashAtRender: string }).hashAtRender = location.hash;
+            o.disconnect();
+          }
+        }).observe(document, { childList: true, subtree: true });
+      });
+    });
+    afterAll(async () => {
+      await browser?.close();
+    });
+
+    it('shows the not-paired screen at phone width, without console errors', async () => {
+      errors = [];
+      await page.goto(prod.base + '/');
+      await page.getByRole('button', { name: 'Scan the code' }).waitFor();
+      await page.getByText('A remote for the Truthcoin App on your computer.').waitFor();
+      const width = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(width).toBeLessThanOrEqual(390);
+      await shot('not-paired');
+      await page.emulateMedia({ colorScheme: 'light' });
+      await shot('not-paired-light');
+      await page.emulateMedia({ colorScheme: 'dark' });
+      expect(errors).toEqual([]);
+    });
+
+    it('reads #pair= and strips it from the address bar before anything renders', async () => {
+      errors = [];
+      const value = b64u(
+        utf8(
+          JSON.stringify({
+            v: 1,
+            r: ['wss://relay.example'],
+            n: 'ab'.repeat(32),
+            d: VECTOR_D.public,
+            c: b64u(new Uint8Array(16).fill(12)),
+            x: Math.floor(Date.now() / 1000) + 300,
+          }),
+        ),
+      );
+      await page.goto(`${prod.base}/#pair=${value}`);
+      await page.locator('#devname, [data-testid=homescreen-first]').first().waitFor();
+      expect(await page.evaluate(() => (window as unknown as { hashAtRender: string }).hashAtRender)).toBe('');
+      expect(page.url()).not.toContain('pair=');
+      await shot('pair-form');
+      expect(errors).toEqual([]);
+    });
+
+    it('pairs through the relay, trades with a held buy, stays paired after a reload, and forgets', async () => {
+      errors = [];
+      const desktop = await new TestDesktop({
+        relays: [relay.url],
+        ws: nodeWs,
+        limitSats: 1000,
+        heldAfterMs: 2500,
+        allowAfterMs: 5000,
+      }).start();
+      try {
+        await page.goto(`${local.base}/#pair=${desktop.pairValue()}`);
+        const first = page.locator('#devname, [data-testid=homescreen-first]').first();
+        await first.waitFor();
+        if (await page.locator('[data-testid=homescreen-first]').count()) {
+          await shot('homescreen-first');
+          await page.getByRole('button', { name: 'Pair in this browser instead' }).click();
+        }
+        await page.fill('#devname', 'E2E phone');
+        await page.getByRole('button', { name: 'Pair', exact: true }).click();
+        const code = page.getByTestId('pair-code');
+        await code.waitFor();
+        await eventually(() => desktop.lastCode, (v) => v !== null);
+        expect(await code.textContent()).toBe(desktop.lastCode);
+        await shot('pair-code');
+        // Reload while the computer is still asking: the page carries on with the same keys and the same code.
+        await page.reload();
+        await page.getByTestId('pair-code').waitFor();
+        expect(await page.getByTestId('pair-code').textContent()).toBe(desktop.lastCode);
+        expect(page.url()).not.toContain('pair=');
+
+        await page.getByTestId('home').waitFor({ timeout: 20_000 });
+        expect(desktop.contested).toBe(false);
+        await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes('4,905,000 sats'), 15_000);
+        await eventually(() => page.getByTestId('computer').textContent(), (v) => String(v).includes('block 42'));
+        await eventually(() => page.getByTestId('positions').textContent(), (v) => String(v).includes('100,000 shares'));
+        await shot('home');
+        await page.emulateMedia({ colorScheme: 'light' });
+        await shot('home-light');
+        await page.emulateMedia({ colorScheme: 'dark' });
+
+        await page.getByRole('button', { name: 'Markets' }).click();
+        await page.getByText('Will it rain in Lisbon').waitFor();
+        await shot('markets');
+        await page.getByText('Will it rain in Lisbon').click();
+        await page.getByTestId('outcomes').waitFor();
+        await eventually(() => page.getByTestId('outcomes').textContent(), (v) => String(v).includes('53%'));
+        await shot('market');
+
+        // Buy "Yes" (the second outcome's Buy).
+        await page.getByTestId('outcomes').getByRole('button', { name: 'Buy' }).nth(1).click();
+        await page.fill('#shares', '2,000');
+        await page.getByRole('button', { name: 'Get a price' }).click();
+        await page.getByTestId('quote').waitFor();
+        const q = String(await page.getByTestId('quote').textContent()).replace(/\s+/g, ' ');
+        expect(q).toMatch(/About [\d,]+ sats, at most [\d,]+ sats/);
+        expect(q).toMatch(/This trade counts [\d,]+ sats against this phone's limit, more than the 1,000 sats left today/);
+        expect(q).toContain('a sell at its number of shares (a sat each)');
+        await shot('quote');
+        await page.getByRole('button', { name: 'Buy 2,000 Yes' }).click();
+        await page.locator('[data-testid=flow][data-state=held]').waitFor({ timeout: 15_000 });
+        expect(await page.getByTestId('last-line').textContent()).toContain('Waiting for you to confirm');
+        await shot('trade-held');
+        await page.locator('[data-testid=flow][data-state=pending]').waitFor({ timeout: 15_000 });
+        await shot('trade-pending');
+        const tradeIds = [...desktop.runs.keys()];
+        expect(tradeIds.length).toBe(1);
+        expect(desktop.runs.get(tradeIds[0])).toBe(1);
+
+        // Back to Home: it asks again, and shows the new block, balance and shares.
+        await page.getByRole('button', { name: 'Done' }).click();
+        await page.getByTestId('home').waitFor();
+        const total = desktop.total.toLocaleString('en-US');
+        await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes(`${total} sats`), 15_000);
+        await eventually(() => page.getByTestId('computer').textContent(), (v) => String(v).includes('block 43'), 15_000);
+        await eventually(() => page.getByTestId('positions').textContent(), (v) => String(v).includes('102,000 shares'), 15_000);
+        expect(await page.getByTestId('computer').textContent()).toContain('Left today for trades');
+        await shot('home-after-trade');
+
+        // Reload: still paired, with a key no script can read.
+        await page.reload();
+        await page.getByTestId('home').waitFor();
+        await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes(`${total} sats`), 15_000);
+        const key = await page.evaluate(
+          () =>
+            new Promise<{ extractable: boolean; exported: boolean }>((ok, fail) => {
+              const r = indexedDB.open('truthcoin-phone', 1);
+              r.onerror = () => fail(r.error);
+              r.onsuccess = () => {
+                const g = r.result.transaction('kv').objectStore('kv').get('pairing');
+                g.onsuccess = async () => {
+                  const k = g.result.pPriv as CryptoKey;
+                  const exported = await crypto.subtle.exportKey('jwk', k).then(
+                    () => true,
+                    () => false,
+                  );
+                  ok({ extractable: k.extractable, exported });
+                };
+              };
+            }),
+        );
+        expect(key).toEqual({ extractable: false, exported: false });
+
+        await page.getByRole('button', { name: 'Receive' }).click();
+        await eventually(() => page.getByTestId('receive').textContent(), (v) => String(v).includes('s13_1TruthTestAddr9xyzQ4mK_5f2a1c'), 15_000);
+        await shot('receive');
+
+        await page.getByRole('button', { name: 'Settings' }).click();
+        await page.getByTestId('settings').waitFor();
+        expect(await page.getByTestId('settings').textContent()).toContain('E2E phone');
+        await shot('settings');
+        await page.getByRole('button', { name: 'Forget this computer' }).click();
+        await page.getByTestId('forget-confirm').click();
+        await page.getByRole('button', { name: 'Scan the code' }).waitFor();
+        await page.reload();
+        await page.getByRole('button', { name: 'Scan the code' }).waitFor();
+        expect(errors).toEqual([]);
+      } finally {
+        desktop.stop();
+      }
+    });
+  });
+}

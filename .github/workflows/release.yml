@@ -1,0 +1,202 @@
+name: release
+
+# A tag vX.Y.Z builds the app for Linux and macOS and leaves a draft GitHub Release with the files and their checksums.
+# The draft is published only once the operator has signed SHA256SUMS: release/release-app.sh's `after` step checks the
+# signature against the release key pinned in release/ and then publishes it (release/README.md).
+# workflow_dispatch on a branch is the dry run: every package is built, nothing is published.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Read-only by default. Only the job that publishes gets write access.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - id: v
+        name: Check the tag matches the app version
+        run: |
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          crate=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          [ "$app" = "$pkg" ] && [ "$app" = "$crate" ] || { echo "versions differ: tauri $app, npm $pkg, cargo $crate"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            [ "${GITHUB_REF_NAME}" = "v$app" ] || { echo "tag ${GITHUB_REF_NAME} does not match app version $app"; exit 1; }
+            # The app's update check is built from this key (src-tauri/build.rs): no release without it.
+            grep -q '^ssh-ed25519 ' release/truthcoinapp-release.pub || { echo "no release key in release/"; exit 1; }
+          fi
+          echo "version=$app" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    # Built in the pinned image (build/linux/Dockerfile: Ubuntu 22.04, so the package installs on 22.04 and newer), so
+    # anyone can rebuild the program and the .deb from the tag and get the same bytes (build/linux/rebuild.sh). The
+    # AppImage is packed in the same image, but not reproducibly yet (its tools are downloaded at build time).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build in the pinned image
+        run: OUT="$PWD/out" BUNDLES=deb,appimage JOBS=4 build/linux/rebuild.sh HEAD
+      - name: Collect
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          rm out/truthcoin-app
+          test -f "out/truthcoin-app_${V}_amd64.deb"
+          test -f "out/Truthcoin-App_${V}_amd64.AppImage"
+          ls -l out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux
+          path: out/*
+          if-no-files-found: error
+
+  macos:
+    needs: version
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20.20.2
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # 2026-09-29
+        with:
+          toolchain: 1.98.1
+          # One universal app for Apple Silicon and Intel Macs.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      # No install scripts: only esbuild (it finds its binary without) and fsevents (a file watcher, not needed for a
+      # build) have one, and none runs with the build's rights.
+      - run: npm ci --ignore-scripts
+      # Ad-hoc signed only (bundle.macOS.signingIdentity "-"), not notarised: the first launch needs
+      # System Settings > Privacy & Security > Open Anyway.
+      - run: npx tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: Collect
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p out
+          # Tauri names the disk image after productName, with a space; a GitHub release would turn it into a dot,
+          # so the published name has a hyphen and SHA256SUMS lists it as published.
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg "out/Truthcoin-App_${V}_universal.dmg"
+          # The app alone, for an updater: Truthcoin App.app without macOS's extended attributes (no ._ files), the
+          # same bundle the disk image holds.
+          app="out/Truthcoin-App_${V}_universal.app.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$app" -C src-tauri/target/universal-apple-darwin/release/bundle/macos "Truthcoin App.app"
+          tar -tzf "$app" > "$RUNNER_TEMP/app-files.txt"
+          if grep -q '\._' "$RUNNER_TEMP/app-files.txt"; then echo "::error::$app holds ._ files"; exit 1; fi
+          tar -xzOf "$app" "Truthcoin App.app/Contents/Info.plist" | grep -q "<string>${V}</string>"
+          ls -l out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, linux, macos]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # Only the packages, by name: no other workflow's artifact may become a release asset.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux
+          path: out
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: macos
+          path: out
+      # GitHub records attestations for public repositories (a private one would need GitHub Enterprise), so while
+      # the repository is private this step is skipped and the job still passes.
+      - name: Record build attestations for the packages
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            out/*.deb
+            out/*.AppImage
+            out/*.dmg
+            out/*.app.tar.gz
+      - name: Leave the GitHub Release as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            # This release's own notes (what's new, the security self-audit), when the tag has them.
+            if [ -f "release-notes/$TAG.md" ]; then cat "release-notes/$TAG.md"; echo; fi
+            cat <<'EOF'
+          ## Install
+
+          **Ubuntu 22.04+ / Debian 12+:** download the `.deb` below and double-click it
+          (or `sudo apt install ./truthcoin-app_*_amd64.deb`).
+
+          **Other Linux:** the AppImage below (`chmod +x` it, then run it).
+
+          **macOS (Apple Silicon and Intel):** open the `.dmg` and drag Truthcoin App to Applications. This build is
+          not notarised, so the first time macOS will refuse to open it: go to **System Settings → Privacy & Security**
+          and choose **Open Anyway**.
+
+          ## Check your download
+
+          `SHA256SUMS` lists every file's SHA-256 and `SHA256SUMS.sig` is its signature by the Truthcoin App release
+          key; the README's "Verify your download" shows how to check both. GitHub also records a build attestation
+          for each package: `gh attestation verify <file> --repo mblowes/truthcoin-app`.
+          EOF
+          } > "$notes"
+          cd out
+          sha256sum * > SHA256SUMS
+          files=(*)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Never replace a file already on the release (draft or not): upload only the missing ones, and stop if a
+            # rebuilt file differs from the copy there.
+            published=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+            mkdir -p "$RUNNER_TEMP/published"
+            missing=()
+            for f in "${files[@]}"; do
+              if printf '%s\n' "$published" | grep -qxF "$f"; then
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$f" --dir "$RUNNER_TEMP/published" --clobber
+                if ! cmp -s "$f" "$RUNNER_TEMP/published/$f"; then
+                  echo "::error::$f differs from the copy already on $TAG. Not replacing it."
+                  exit 1
+                fi
+              else
+                missing+=("$f")
+              fi
+            done
+            if [ ${#missing[@]} -gt 0 ]; then gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "${missing[@]}"; fi
+          else
+            # A draft: nobody else sees it until release-app.sh `after` publishes it, once SHA256SUMS is signed.
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Truthcoin App $TAG" --notes-file "$notes" "${files[@]}"
+          fi
