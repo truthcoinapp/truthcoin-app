@@ -155,5 +155,8 @@ build/linux/rebuild.sh v<version>      # prints the hashes; compare them with SH
   file L2L published for v<node version>", not that the program is safe. The node has no RPC login and stores its seed
   unencrypted.
 - **The phone page** is served by GitHub Pages from this repository's tagged source (`.github/workflows/pages.yml`);
-  whoever controls those files controls what the page shows and asks, within the phone's limit.
+  whoever controls those files controls what the page shows and asks, within the phone's limit. Its origin,
+  `https://mblowes.github.io`, is shared by every Pages site of the `mblowes` account, and the phone's keys live in
+  that origin's storage: so no other repository under `mblowes` may enable Pages, and `mblowes/mblowes.github.io`
+  must never exist. (Moving the page to an origin of its own later would make every phone pair again.)
 - **eCash, the enforcer and BitWindow** are not covered here.

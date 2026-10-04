@@ -44,6 +44,8 @@ and `SHA256SUMS` must list the names as published.
    (or the history squashed) before the first push.
 
 3. **Settings on GitHub.**
+   - **Never enable Pages on any other repository under `mblowes`, and never create `mblowes/mblowes.github.io`:**
+     they would share the phone page's origin, and with it the phone's keys (VERIFY.md).
    - Make the repository public before the first tag: GitHub records build attestations only for public
      repositories, and `check` requires them.
    - Pages: Settings > Pages > Source: **GitHub Actions**. Then Settings > Environments > `github-pages` >
