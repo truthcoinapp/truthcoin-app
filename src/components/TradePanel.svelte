@@ -104,7 +104,7 @@
   {:else}
     <div class="field">
       <label for="sh">Shares{side === "sell" ? ` (you hold ${num(held)})` : ""}</label>
-      <input id="sh" bind:value={shares} inputmode="numeric" placeholder="50,000" on:input={() => (quote = null)} disabled={busy} />
+      <input id="sh" bind:value={shares} inputmode="numeric" placeholder={side === "sell" ? `up to ${num(held)}` : "50,000"} on:input={() => (quote = null)} disabled={busy} />
     </div>
     {#if err}
       <div class="notice error">{err}</div>
@@ -124,6 +124,9 @@
         <dt>Chance now → after</dt><dd>{chance(quote.price_now)} → {chance(quote.price_after)}</dd>
         <dt>Fees (included)</dt><dd>{sats(fees)}{feeShare ? ` (${feeShare}% of this trade)` : ""}</dd>
       </dl>
+      {#if side === "sell" && feeShare > 25}
+        <div class="notice warn" style="margin-top:8px">Fees take {feeShare}% of what this brings ({sats(fees)} on every trade): selling more at once costs less in fees.</div>
+      {/if}
       {#if losing}
         <div class="notice error" style="margin-top:8px">
           This costs more than it can ever pay back ({sats(fees)} of fees on every trade). Buy more shares, or skip it.

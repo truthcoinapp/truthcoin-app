@@ -281,29 +281,42 @@ pub async fn market(st: St<'_>, id: String) -> Result<MarketDetail, String> {
     })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
+pub struct SettledOutcome {
+    pub label: String,
+    pub shares: u64,
+    /// What each share paid (0 to 1 sat).
+    pub per_share: f64,
+}
+
+#[derive(Serialize, Clone)]
 pub struct Settled {
     pub market_id: String,
     pub title: String,
-    pub summary: String,
-    /// What the shares the app's own trades left you held paid out, by the node's final prices.
+    /// The winning outcomes' labels.
+    pub winners: Vec<String>,
+    /// What the shares the app's own trades left you holding were paid, by the node's final prices.
     pub paid_sats: u64,
     pub shares: u64,
+    pub outcomes: Vec<SettledOutcome>,
 }
 
 /// Settled markets the app traded in, and what they paid (UX review M2). The node pays out by itself; this works it
 /// out from the app's own record of trades and each market's final prices.
 #[tauri::command]
 pub async fn settled(st: St<'_>) -> Result<Vec<Settled>, String> {
-    let rpc = st.node.rpc_or_err()?;
+    settled_for(&st.node.rpc_or_err()?, &st.trades).await
+}
+
+pub async fn settled_for(rpc: &crate::rpc::Rpc, trades: &crate::trades::Trades) -> Result<Vec<Settled>, String> {
     let mut by_market: std::collections::BTreeMap<String, std::collections::BTreeMap<u32, i128>> = Default::default();
-    for t in st.trades.all().iter().filter(|t| t.status == crate::trades::Status::Done) {
+    for t in trades.all().iter().filter(|t| t.status == crate::trades::Status::Done) {
         let e = by_market.entry(t.market_id.clone()).or_default().entry(t.outcome).or_default();
         *e += if t.side == Side::Buy { t.shares as i128 } else { -(t.shares as i128) };
     }
     let mut out = vec![];
     for (id, held) in by_market {
-        let Ok(m) = markets::get(&rpc, &id).await else { continue };
+        let Ok(m) = markets::get(rpc, &id).await else { continue };
         if m["state"].as_str() != Some("settled") {
             continue;
         }
@@ -321,12 +334,28 @@ pub async fn settled(st: St<'_>) -> Result<Vec<Settled>, String> {
             .iter()
             .map(|(i, n)| ((*n).max(0) as f64 * price(*i)).floor() as u64)
             .fold(0u64, |a, b| a.saturating_add(b));
+        let winners = m["resolution"]["winning_outcomes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|w| markets::outcome(&m, w["outcome_index"].as_u64()? as u32).map(|x| x.0))
+            .collect();
+        let outcomes = held
+            .iter()
+            .filter(|(_, n)| **n > 0)
+            .map(|(i, n)| SettledOutcome {
+                label: markets::outcome(&m, *i).map(|x| x.0).unwrap_or_default(),
+                shares: *n as u64,
+                per_share: price(*i),
+            })
+            .collect();
         out.push(Settled {
             market_id: id,
             title: m["title"].as_str().unwrap_or("").into(),
-            summary: m["resolution"]["summary"].as_str().unwrap_or("").into(),
+            winners,
             paid_sats: paid,
             shares,
+            outcomes,
         });
     }
     Ok(out)

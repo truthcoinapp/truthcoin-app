@@ -42,8 +42,12 @@ pub struct WalletStatus {
     pub incoming_sats: u64,
     /// On its way to eCash: withdrawals waiting for their bundle to pay out.
     pub withdrawing_sats: u64,
-    /// Deposits from eCash sent in the last two hours (they arrive after an eCash block and the Truthcoin block after).
+    /// Deposits from eCash on their way (they arrive after an eCash block and the Truthcoin block after).
     pub recent_deposits: Vec<Deposit>,
+    /// Withdrawals to eCash this app made, until they pay out (or are hidden).
+    pub withdrawals: Vec<WithdrawalView>,
+    /// The cost of the waiting trades, already taken out of `total_sats`.
+    pub pending_cost_sats: u64,
 }
 
 #[derive(Serialize, serde::Deserialize, Clone)]
@@ -51,6 +55,32 @@ pub struct Deposit {
     pub time: u64,
     pub amount_sats: u64,
     pub txid: String,
+    /// The Truthcoin height when it was sent: it has arrived by two blocks later.
+    #[serde(default)]
+    pub height: u64,
+    #[serde(default)]
+    pub arrived: bool,
+}
+
+#[derive(Serialize, serde::Deserialize, Clone)]
+pub struct Withdrawal {
+    pub time: u64,
+    pub amount_sats: u64,
+    pub address: String,
+    pub txid: String,
+    #[serde(default)]
+    pub hidden: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct WithdrawalView {
+    pub time: u64,
+    pub amount_sats: u64,
+    pub address: String,
+    pub txid: String,
+    /// "waiting" (for the next bundle), "bundled" (in the bundle eCash miners are voting on) or "sent" (out of this
+    /// node's hands: it pays out once miners approve it; BitWindow shows the payment).
+    pub stage: String,
 }
 
 /// The value of an output's content: plain coins, and a withdrawal's value, from the node's JSON.
@@ -87,16 +117,84 @@ fn deposits_path(dir: &std::path::Path) -> std::path::PathBuf {
     dir.join("deposits.json")
 }
 
-fn recent_deposits(dir: &std::path::Path) -> Vec<Deposit> {
+fn all_deposits(dir: &std::path::Path) -> Vec<Deposit> {
     let now = crate::activity::unix_now();
     let l: Vec<Deposit> = crate::files::read_json(&deposits_path(dir)).ok().flatten().unwrap_or_default();
-    l.into_iter().filter(|d| d.time + 7200 > now).collect()
+    l.into_iter().filter(|d| d.time + 2 * 86400 > now).collect()
+}
+
+/// Deposits still on their way: not seen in the wallet (its coin's outpoint names the eCash txid) and fewer than two
+/// Truthcoin blocks since they were sent (UX re-check N1). Ones found arrived are marked so.
+async fn deposits_on_their_way(dir: &std::path::Path, rpc: &crate::rpc::Rpc) -> Vec<Deposit> {
+    let mut l = all_deposits(dir);
+    if l.iter().all(|d| d.arrived) {
+        return vec![];
+    }
+    let height: u64 = rpc.public("getblockcount", json!([])).await.unwrap_or(0);
+    let utxos: Vec<Value> = rpc.private("get_wallet_utxos", json!([])).await.unwrap_or_default();
+    let outpoints: String = utxos.iter().map(|u| u["outpoint"].to_string().to_lowercase()).collect::<Vec<_>>().join(" ");
+    let mut changed = false;
+    for d in l.iter_mut().filter(|d| !d.arrived) {
+        let seen = !d.txid.is_empty() && outpoints.contains(&d.txid.to_lowercase());
+        if seen || (d.height > 0 && height >= d.height + 2) || d.time + 7200 < crate::activity::unix_now() {
+            d.arrived = true;
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = crate::files::write_json(&deposits_path(dir), &l);
+    }
+    l.into_iter().filter(|d| !d.arrived).collect()
 }
 
 fn note_deposit(dir: &std::path::Path, d: Deposit) {
-    let mut l = recent_deposits(dir);
+    let mut l = all_deposits(dir);
     l.push(d);
     let _ = crate::files::write_json(&deposits_path(dir), &l);
+}
+
+fn withdrawals_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("withdrawals.json")
+}
+
+fn all_withdrawals(dir: &std::path::Path) -> Vec<Withdrawal> {
+    crate::files::read_json(&withdrawals_path(dir)).ok().flatten().unwrap_or_default()
+}
+
+/// The app's withdrawals, shown for 14 days unless hidden (UX re-check N2), each with how far it has got: still an
+/// output of this wallet (waiting for the next bundle), in the bundle eCash miners are voting on, or past that.
+async fn withdrawals_view(dir: &std::path::Path, rpc: &crate::rpc::Rpc) -> Vec<WithdrawalView> {
+    let now = crate::activity::unix_now();
+    let l: Vec<Withdrawal> =
+        all_withdrawals(dir).into_iter().filter(|w| !w.hidden && w.time + 14 * 86400 > now).collect();
+    if l.is_empty() {
+        return vec![];
+    }
+    let utxos: Value = rpc.private("get_wallet_utxos", json!([])).await.unwrap_or(Value::Null);
+    let bundle: Value = rpc.public("pending_withdrawal_bundle", json!([])).await.unwrap_or(Value::Null);
+    let (mine, bundled) = (utxos.to_string(), bundle.to_string());
+    l.into_iter()
+        .map(|w| {
+            let stage = if mine.contains(&w.address) {
+                "waiting"
+            } else if bundled.contains(&w.address) {
+                "bundled"
+            } else {
+                "sent"
+            };
+            WithdrawalView { time: w.time, amount_sats: w.amount_sats, address: w.address, txid: w.txid, stage: stage.into() }
+        })
+        .collect()
+}
+
+/// Hide a withdrawal from Home (it paid out, or the user has seen enough of it).
+#[tauri::command]
+pub fn withdrawal_hide(st: St<'_>, txid: String) -> Result<(), String> {
+    let mut l = all_withdrawals(&st.dir);
+    for w in l.iter_mut().filter(|w| w.txid == txid) {
+        w.hidden = true;
+    }
+    crate::files::write_json(&withdrawals_path(&st.dir), &l).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -108,7 +206,9 @@ pub async fn wallet_status(st: St<'_>) -> Result<WalletStatus, String> {
     }
     let b = balance(&rpc, &st.trades).await?;
     let coins = if has_seed { coins(&rpc).await.unwrap_or(0) } else { 0 };
-    Ok(WalletStatus { has_seed, coins, recent_deposits: recent_deposits(&st.dir), ..b })
+    let recent_deposits = deposits_on_their_way(&st.dir, &rpc).await;
+    let withdrawals = withdrawals_view(&st.dir, &rpc).await;
+    Ok(WalletStatus { has_seed, coins, recent_deposits, withdrawals, ..b })
 }
 
 /// The balance as people read it (UX review B1), for the desktop and the phone.
@@ -135,6 +235,8 @@ pub async fn balance(rpc: &crate::rpc::Rpc, trades: &crate::trades::Trades) -> R
         incoming_sats: incoming,
         withdrawing_sats: withdrawing,
         recent_deposits: vec![],
+        withdrawals: vec![],
+        pending_cost_sats: cost,
     })
 }
 
@@ -402,9 +504,10 @@ pub async fn deposit(st: St<'_>, amount_sats: u64, fee_sats: u64) -> Result<Stri
     }
     let r = receive(&rpc).await?;
     let e = st.node.settings().enforcer;
+    let height: u64 = rpc.public("getblockcount", json!([])).await.unwrap_or(0);
     let txid = enforcer::deposit(&e, &r.address, amount_sats, fee_sats).await?;
     crate::activity::note(&st.dir, &format!("deposit of {amount_sats} sats from eCash sent"));
-    note_deposit(&st.dir, Deposit { time: crate::activity::unix_now(), amount_sats, txid: txid.clone() });
+    note_deposit(&st.dir, Deposit { time: crate::activity::unix_now(), amount_sats, txid: txid.clone(), height, arrived: false });
     Ok(txid)
 }
 
@@ -442,5 +545,14 @@ pub async fn withdraw(
     }
     let r: Value = rpc.private("withdraw", json!([address, amount_sats, fee_sats, mainchain_fee_sats])).await?;
     crate::activity::note(&st.dir, &format!("withdrawal of {amount_sats} sats to eCash {}", crate::activity::mask(&address)));
+    let mut l = all_withdrawals(&st.dir);
+    l.push(Withdrawal {
+        time: crate::activity::unix_now(),
+        amount_sats,
+        address: address.clone(),
+        txid: r.as_str().unwrap_or_default().to_string(),
+        hidden: false,
+    });
+    let _ = crate::files::write_json(&withdrawals_path(&st.dir), &l);
     Ok(r)
 }

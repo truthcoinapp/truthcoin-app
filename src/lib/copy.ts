@@ -1,22 +1,19 @@
-// Copy text to the clipboard. True if it worked.
+// Copy text to the clipboard: through the app (Rust writes the system clipboard), else the webview's own. True if it
+// worked; when it didn't, the screen says so and the text stays selectable.
+import { invoke } from "@tauri-apps/api/core";
+
 export async function copy(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text);
+    await invoke("copy_text", { text });
     return true;
   } catch {
-    // Older webviews: a hidden text area and the copy command.
     try {
-      const t = document.createElement("textarea");
-      t.value = text;
-      t.style.position = "fixed";
-      t.style.opacity = "0";
-      document.body.appendChild(t);
-      t.select();
-      const ok = document.execCommand("copy");
-      t.remove();
-      return ok;
+      await navigator.clipboard.writeText(text);
+      return true;
     } catch {
       return false;
     }
   }
 }
+
+export const COPY_FAILED = "Couldn't copy: select the text and press Ctrl+C (⌘C on a Mac).";

@@ -96,7 +96,7 @@
   }
   // Sats in a few characters: 69,315 · 693,148 · 6.9M.
   function short(n: number): string {
-    return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M sats` : `${Math.round(n).toLocaleString("en-US")} sats`;
+    return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`;
   }
   $: outcomeCount = kind === "category" ? Math.max(2, options.split("\n").filter((o) => o.trim()).length) : 2;
 </script>

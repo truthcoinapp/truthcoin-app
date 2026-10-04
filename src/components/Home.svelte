@@ -3,9 +3,9 @@
   // opening in place (deposit from eCash, receive, withdraw), trades on their way, settled markets, positions and recent
   // trades.
   import { createEventDispatcher, onDestroy, onMount } from "svelte";
-  import { api, errText, type Holding, type Trade, type WalletStatus } from "../lib/api";
+  import { api, errText, type Holding, type SettledRow, type Trade, type WalletStatus } from "../lib/api";
   import { chance, num, parseWhole, sats, short, when } from "../lib/format";
-  import { copy } from "../lib/copy";
+  import { copy, COPY_FAILED } from "../lib/copy";
   import QrCode from "./QrCode.svelte";
 
   export let wallet: WalletStatus | null;
@@ -17,7 +17,7 @@
   let panel: "" | "deposit" | "receive" | "withdraw" = "";
   let holdings: Holding[] = [];
   let trades: Trade[] = [];
-  let settled: { market_id: string; title: string; summary: string; paid_sats: number; shares: number }[] = [];
+  let settled: SettledRow[] = [];
   let tipHeight = 0;
   let loadErr = "";
   let panelErr = "";
@@ -74,8 +74,26 @@
   }
 
   async function doCopy(text: string, what: string) {
-    copied = (await copy(text)) ? what : "";
+    if (await copy(text)) {
+      copied = what;
+      panelErr = "";
+    } else {
+      copied = "";
+      panelErr = COPY_FAILED;
+    }
     setTimeout(() => (copied = ""), 2500);
+  }
+  const STAGE: Record<string, string> = {
+    waiting: "waiting for the next bundle",
+    bundled: "in the bundle eCash miners are approving (takes days)",
+    sent: "with eCash miners: it pays out once they approve it (days); BitWindow shows the payment",
+  };
+  // "You got 50,000 sats (50,000 Yes shares; 20,000 No shares paid nothing)".
+  function settledWords(s: SettledRow): string {
+    const parts = s.outcomes.map((o) =>
+      o.per_share >= 0.999 ? `${num(o.shares)} ${o.label} shares` : o.per_share > 0 ? `${num(o.shares)} ${o.label} shares at ${o.per_share.toFixed(2)} sat` : `${num(o.shares)} ${o.label} shares paid nothing`,
+    );
+    return `You got ${sats(s.paid_sats)} (${parts.join("; ")})`;
   }
 
   async function deposit() {
@@ -125,7 +143,7 @@
 
   async function withdraw() {
     const a = parseWhole(wAmount), f = parseWhole(wFee), m = parseWhole(wMainFee);
-    if (!looksLikeEcash(wAddr)) return (panelErr = "That isn't an eCash address. In BitWindow, Receive gives you one, or use the button below.");
+    if (!looksLikeEcash(wAddr)) return (panelErr = "That isn't an eCash address. In BitWindow, Receive gives you one, or use \"Send to BitWindow's eCash wallet\" above.");
     if (!(a > 0) || !(f >= 0) || !(m >= 0)) return (panelErr = "Give the amount and the fees in sats");
     if (!wConfirm) return void ((wConfirm = true), (panelErr = ""));
     wConfirm = false;
@@ -194,7 +212,7 @@
       {/if}
       {#if wallet.in_pending_trades_sats > 0}
         <dt>Held by {wallet.pending_trades} waiting trade{wallet.pending_trades === 1 ? "" : "s"}</dt>
-        <dd>{sats(wallet.in_pending_trades_sats)}</dd>
+        <dd>{sats(wallet.in_pending_trades_sats)}{wallet.pending_cost_sats ? ` (${sats(wallet.pending_cost_sats)} of it pays for the trade${wallet.pending_trades === 1 ? "" : "s"})` : ""}</dd>
       {/if}
       {#if wallet.incoming_sats > 0}
         <dt>Change coming back</dt><dd>{sats(wallet.incoming_sats)}</dd>
@@ -213,7 +231,13 @@
       <p class="small muted">A withdrawal pays out on eCash once miners approve its bundle: that takes days.</p>
     {/if}
     {#each wallet.recent_deposits as d}
-      <p class="small muted">Deposit from eCash, {sats(d.amount_sats)}, sent {when(d.time)}: it arrives after the next eCash block and the Truthcoin block after it.</p>
+      <p class="small muted">On its way: a deposit from eCash, {sats(d.amount_sats)}, sent {when(d.time)}. It arrives after the next eCash block and the Truthcoin block after it.</p>
+    {/each}
+    {#each wallet.withdrawals as w}
+      <p class="small muted">
+        Withdrawal of {sats(w.amount_sats)} to eCash, {when(w.time)}: {STAGE[w.stage] ?? w.stage}.
+        <button class="link small" on:click={() => api.withdrawalHide(w.txid).then(() => dispatch("changed"))}>Hide</button>
+      </p>
     {/each}
   {/if}
   {#if wallet && wallet.coins === 1 && wallet.available_sats >= 100_000 && !splitDone}
@@ -356,11 +380,8 @@
       <button class="item" on:click={() => dispatch("market", s.market_id)}>
         <div style="flex:1">
           <div class="title">{s.title}</div>
-          <div class="small muted">{s.summary}</div>
-        </div>
-        <div class="nowrap" style="text-align:right">
-          <div>paid {sats(s.paid_sats)}</div>
-          <div class="small muted">for {num(s.shares)} shares</div>
+          <div class="small">Settled: {s.winners.join(", ") || "no single answer"}</div>
+          <div class="small muted">{settledWords(s)}</div>
         </div>
       </button>
     {/each}

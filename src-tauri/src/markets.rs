@@ -256,7 +256,11 @@ pub async fn quote(rpc: &Rpc, market_id: &str, outcome_index: u32, shares: u64, 
                 miner_fee_sats: MINER_FEE,
                 price_now,
                 price_after: after,
-                limit_sats: net.saturating_sub(MINER_FEE + margin(net)),
+                // At least half of what it brings (re-check N4: a small sell's floor came out at 0), and never above
+                // what place() accepts.
+                limit_sats: net
+                    .saturating_sub(MINER_FEE + margin(net))
+                    .max((net / 2).min(net.saturating_sub(MINER_FEE))),
                 seller_address: Some(holder),
             })
         }

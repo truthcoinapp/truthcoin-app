@@ -1,4 +1,5 @@
 mod activity;
+mod clipboard;
 mod commands;
 mod create;
 mod files;
@@ -108,6 +109,8 @@ pub fn run() {
             commands::markets,
             commands::settled,
             wallet::ecash_address,
+            wallet::withdrawal_hide,
+            clipboard::copy_text,
             commands::market,
             commands::positions,
             commands::trade_quote,

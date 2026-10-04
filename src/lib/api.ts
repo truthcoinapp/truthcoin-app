@@ -51,6 +51,17 @@ export interface WalletStatus {
   incoming_sats: number;
   withdrawing_sats: number;
   recent_deposits: { time: number; amount_sats: number; txid: string }[];
+  withdrawals: { time: number; amount_sats: number; address: string; txid: string; stage: "waiting" | "bundled" | "sent" }[];
+  pending_cost_sats: number;
+}
+
+export interface SettledRow {
+  market_id: string;
+  title: string;
+  winners: string[];
+  paid_sats: number;
+  shares: number;
+  outcomes: { label: string; shares: number; per_share: number }[];
 }
 
 export interface MarketSummary {
@@ -182,7 +193,8 @@ export const api = {
   updateCheck: () => invoke<{ current: string; newer: string | null; url: string | null; note: string | null }>("update_check"),
   split: (parts: number) => invoke<any>("wallet_split", { parts }),
   markets: () => invoke<MarketRow[]>("markets"),
-  settled: () => invoke<{ market_id: string; title: string; summary: string; paid_sats: number; shares: number }[]>("settled"),
+  settled: () => invoke<SettledRow[]>("settled"),
+  withdrawalHide: (txid: string) => invoke<void>("withdrawal_hide", { txid }),
   ecashAddress: () => invoke<string>("ecash_address"),
   market: (id: string) => invoke<MarketDetail>("market", { id }),
   positions: () => invoke<Holding[]>("positions"),

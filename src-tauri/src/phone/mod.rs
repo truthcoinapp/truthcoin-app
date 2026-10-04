@@ -658,10 +658,22 @@ impl Phone {
                     .filter(|h| h.market_id == id)
                     .map(|h| json!({"outcome": h.outcome, "shares": h.shares, "value": h.value_sats}))
                     .collect();
+                // How each question is decided and when voters decide (UX re-check M4).
+                let status: Value = rpc.public("decision_status", json!([])).await.unwrap_or(Value::Null);
+                let mut decisions = vec![];
+                for d in m["dimensions"].as_array().into_iter().flatten().take(4) {
+                    let Some(did) = d["decision_id"].as_str() else { continue };
+                    let v: Value = rpc.public("decision_get", json!([did])).await.unwrap_or(Value::Null);
+                    let info = &v["content"]["Decision"];
+                    decisions.push(json!({"question": cut(info["header"].as_str().or(d["name"].as_str()).unwrap_or(""), 160),
+                                          "rules": cut(info["description"].as_str().unwrap_or(""), 600),
+                                          "period": v["period_index"]}));
+                }
                 Ok(json!({"id": id, "title": cut(m["title"].as_str().unwrap_or(""), 200),
-                          "description": cut(m["description"].as_str().unwrap_or(""), 1500), "state": m["state"],
+                          "description": cut(m["description"].as_str().unwrap_or(""), 1200), "state": m["state"],
                           "fee_rate": m["trading_fee_rate"], "volume": m["total_volume_sats"], "outcomes": outcomes,
-                          "resolution": resolution, "holdings": holdings}))
+                          "resolution": resolution, "holdings": holdings, "decisions": decisions,
+                          "current_period": status["current_period"], "blocks_per_period": status["blocks_per_period"]}))
             }
             "positions" => {
                 let mut h = markets::holdings(&rpc, &self.trades).await?;
@@ -674,7 +686,19 @@ impl Phone {
                                     "outcome": x.outcome, "label": cut(&x.outcome_label, 80), "shares": x.shares,
                                     "price": x.price, "value": x.value_sats, "paid": x.paid_sats}))
                     .collect();
-                Ok(json!({"positions": items, "total_value": total}))
+                // Settled markets the wallet traded in, and what they paid (UX re-check N6).
+                let settled: Vec<Value> = crate::commands::settled_for(&rpc, &self.trades)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .take(10)
+                    .map(|s| json!({"market_id": s.market_id, "title": cut(&s.title, 120),
+                                    "winners": s.winners.iter().map(|w| cut(w, 60)).collect::<Vec<_>>(),
+                                    "paid": s.paid_sats,
+                                    "outcomes": s.outcomes.iter().map(|o| json!({"label": cut(&o.label, 60), "shares": o.shares,
+                                                                                 "per_share": o.per_share})).collect::<Vec<_>>()}))
+                    .collect();
+                Ok(json!({"positions": items, "total_value": total, "settled": settled}))
             }
             "balance" => {
                 let b = crate::wallet::balance(&rpc, &self.trades).await?;

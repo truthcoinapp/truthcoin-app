@@ -94,7 +94,11 @@
       <div style="margin-top:8px">
         {#if (d?.decisions.length ?? 0) > 1}<div class="small"><strong>{q.question}</strong></div>{/if}
         {#if q.rules}<p class="small"><span class="muted">How it's decided:</span> {q.rules}</p>{/if}
-        <p class="small"><span class="muted">Voters decide in</span> {whenVoting(q.period)}</p>
+        {#if settled}
+          <p class="small"><span class="muted">Decided in</span> period {q.period}</p>
+        {:else}
+          <p class="small"><span class="muted">Voters decide in</span> {whenVoting(q.period)}</p>
+        {/if}
       </div>
     {/each}
   </div>
@@ -118,7 +122,7 @@
           <div class="row">
             <div class="title">{label(o)}</div>
             {#if settled}
-              <div class="nowrap">paid {paidPer(o.outcome_index) === 1 ? "1 sat" : `${paidPer(o.outcome_index).toFixed(2)} sat`} a share</div>
+              <div class="nowrap">{paidPer(o.outcome_index) >= 0.999 ? "paid 1 sat a share" : paidPer(o.outcome_index) > 0 ? `paid ${paidPer(o.outcome_index).toFixed(2)} sat a share` : "paid nothing"}</div>
             {:else}
               <div>{chance(o.price)}</div>
             {/if}

@@ -5,7 +5,7 @@
   import { api, errText, type PhoneInfo } from "../lib/api";
   import { num, parseWhole, sats, when } from "../lib/format";
   import QrCode from "./QrCode.svelte";
-  import { copy } from "../lib/copy";
+  import { copy, COPY_FAILED } from "../lib/copy";
 
   let info: PhoneInfo | null = null;
   let err = "";
@@ -132,7 +132,7 @@
     <div class="qr-wrap"><QrCode text={pairUrl} size={300} /></div>
     <p class="small muted"><span class="spin"></span> Waiting for the phone… (the code works for 5 minutes, once)</p>
     <div class="actions">
-      <button on:click={async () => { linkCopied = await copy(pairUrl); setTimeout(() => (linkCopied = false), 2500); }}>{linkCopied ? "Copied" : "Copy link"}</button>
+      <button on:click={async () => { linkCopied = await copy(pairUrl); if (!linkCopied) err = COPY_FAILED; setTimeout(() => (linkCopied = false), 2500); }}>{linkCopied ? "Copied" : "Copy link"}</button>
       <button on:click={endPair}>Cancel</button>
     </div>
     <p class="small muted">If the camera can't read the code, copy the link to your phone some private way and open it there.</p>

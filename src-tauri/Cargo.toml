@@ -33,6 +33,8 @@ tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 url = "2"
 zeroize = "1"
+# Copy buttons: the clipboard written from Rust (a webview's clipboard can't be relied on)
+arboard = { version = "3.6", default-features = false }
 # Deposits from eCash: the enforcer's gRPC (WalletService.CreateDepositTransaction), messages written here
 tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
 prost = "0.13"
