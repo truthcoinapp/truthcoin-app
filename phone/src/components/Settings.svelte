@@ -1,15 +1,17 @@
 <script lang="ts">
   // This phone and the computer it's paired with; the relays; forgetting the computer.
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { fmtDate, fmtSats, keyFingerprint, limitSentence } from '../lib/format';
   import { relayHost } from '../lib/relays';
-  import { pairing, relays, status } from '../lib/session';
+  import { pairing, refreshStatus, relays, status } from '../lib/session';
 
   const dispatch = createEventDispatcher<{ forget: null; repair: null }>();
   let confirming = false;
 
   const STATE_WORDS = { open: 'connected', connecting: 'connecting…', waiting: 'not connected' } as const;
   const version = __APP_VERSION__;
+  // The limit and the relays as the computer has them now (they change there).
+  onMount(() => void refreshStatus().catch(() => undefined));
 </script>
 
 <section class="stack" data-testid="settings">

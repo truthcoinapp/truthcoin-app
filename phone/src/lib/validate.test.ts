@@ -75,6 +75,30 @@ describe('answers from the desktop', () => {
     expect(settled.resolution).toEqual({ summary: 'Yes', winners: [1] });
   });
 
+  it('market: how each question is decided and when; positions: what settled markets paid', () => {
+    const m = v.market({
+      ...goodMarket,
+      decisions: [{ question: 'Rain?', rules: 'IPMA records.\nNothing else.', period: 3 }],
+      current_period: 1,
+      blocks_per_period: null,
+    });
+    expect(m.decisions).toEqual([{ question: 'Rain?', rules: 'IPMA records.\nNothing else.', period: 3 }]);
+    expect(m.currentPeriod).toBe(1);
+    expect(m.blocksPerPeriod).toBeNull();
+    expect(v.market(goodMarket).decisions).toEqual([]); // a desktop that doesn't say
+    expect(() => v.market({ ...goodMarket, decisions: [{ question: 'Q', rules: '', period: -1 }] })).toThrow();
+    const p = v.positions({
+      positions: [],
+      total_value: 0,
+      settled: [{ market_id: 'b2c3d4e5f6a1', title: 'T', winners: ['Yes'], paid: 50000, outcomes: [{ label: 'Yes', shares: 50000, per_share: 1 }] }],
+    });
+    expect(p.settled[0]).toEqual({ marketId: 'b2c3d4e5f6a1', title: 'T', winners: ['Yes'], paid: 50000, outcomes: [{ label: 'Yes', shares: 50000, perShare: 1 }] });
+    expect(v.positions({ positions: [], total_value: 0 }).settled).toEqual([]);
+    expect(() =>
+      v.positions({ positions: [], total_value: 0, settled: [{ market_id: 'x', title: 'T', winners: [], paid: 0, outcomes: [{ label: 'Y', shares: 1, per_share: 2 }] }] }),
+    ).toThrow();
+  });
+
   it('markets: a page of summaries', () => {
     const p = v.marketsPage({
       markets: [

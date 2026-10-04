@@ -66,6 +66,37 @@ export function limitSentence(limitSats: number): string {
   return `Up to ${fmtSats(limitSats)} of trades a day go through by themselves; bigger ones wait for your OK on the computer. A buy counts at its most; a sell at its number of shares.`;
 }
 
+/**
+ * When voters decide, as the desktop words it: "period 3 (now)", "(in about 20 blocks)" on test networks, "(about
+ * 2 quarters from now)" elsewhere; "Decided in period 3" once settled.
+ */
+export function votingWords(period: number, current: number | null, blocksPerPeriod: number | null, settled: boolean): string {
+  if (settled) return `Decided in period ${period}`;
+  const ahead = current === null ? null : period - current;
+  if (ahead === null) return `Voters decide in period ${period}`;
+  if (ahead <= 0) return `Voters decide in period ${period} (now)`;
+  if (blocksPerPeriod) return `Voters decide in period ${period} (in about ${fmtNum(ahead * blocksPerPeriod)} blocks)`;
+  return `Voters decide in period ${period} (about ${ahead} quarter${ahead === 1 ? '' : 's'} from now)`;
+}
+
+/** "Settled: Yes · You got 50,000 sats (50,000 Yes shares; 20,000 No shares paid nothing)". */
+export function settledLine(s: {
+  winners: string[];
+  paid: number | null;
+  outcomes: { label: string; shares: number; perShare: number }[];
+}): string {
+  const held = s.outcomes.filter((o) => o.shares > 0);
+  const parts = held.map((o) =>
+    o.perShare <= 0
+      ? `${fmtShares(o.shares)} ${o.label} shares paid nothing`
+      : o.perShare >= 1
+        ? `${fmtShares(o.shares)} ${o.label} shares`
+        : `${fmtShares(o.shares)} ${o.label} shares at ${fmtPaid(o.perShare)} each`,
+  );
+  const got = s.paid === null ? '' : ` · You got ${fmtSats(s.paid)}`;
+  return `Settled: ${s.winners.join(', ') || 'no winner'}${got}${parts.length ? ` (${parts.join('; ')})` : ''}`;
+}
+
 /** The miner fee every trade pays from the wallet's coin, on top of a buy's price and out of a sell's proceeds. */
 export const MINER_FEE_SATS = 1000;
 

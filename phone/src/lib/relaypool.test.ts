@@ -137,6 +137,18 @@ describe('the relay pool', () => {
     await waitFor(() => a.of('REQ').length === 2, 3000);
   });
 
+  it('tries the other relays at once when one connects (the network is back)', () => {
+    const { f, pool } = setup([A, B], { backoffMin: 5000, backoffMax: 5000 });
+    const b1 = f.last(B);
+    b1.drop(); // B failed: it would wait 5 s
+    expect(pool.info().find((r) => r.url === B)?.state).toBe('waiting');
+    expect(f.sockets.length).toBe(2);
+    f.last(A).open(); // A answers
+    expect(f.sockets.length).toBe(3); // B tries again now
+    expect(f.last(B)).not.toBe(b1);
+    pool.stop();
+  });
+
   it('follows a new relay list', () => {
     const { pool, f } = setup([A]);
     f.last(A).open();

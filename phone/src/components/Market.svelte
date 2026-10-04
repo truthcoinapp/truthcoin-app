@@ -2,7 +2,7 @@
   // One market: its outcomes with their chances, what this wallet holds, and the result once decided.
   import { createEventDispatcher, onMount } from 'svelte';
   import { failureText } from '../lib/api';
-  import { fmtChance, fmtPaid, fmtSats, fmtShares, stateWord } from '../lib/format';
+  import { fmtChance, fmtPaid, fmtSats, fmtShares, stateWord, votingWords } from '../lib/format';
   import { currentApi } from '../lib/session';
   import type { Market, Side } from '../lib/validate';
   import Back from './Back.svelte';
@@ -82,6 +82,24 @@
     {/if}
   </div>
 
+  {#if market && market.decisions.length}
+    <div class="card stack-sm" data-testid="decisions">
+      {#each market.decisions as d, n (n)}
+        <div class="stack-sm decision">
+          {#if d.question && (market.decisions.length > 1 || d.question !== market.title)}
+            <p><strong>{d.question}</strong></p>
+          {/if}
+          {#if d.rules}
+            <p class="small rules"><span class="muted">How it's decided:</span> {d.rules}</p>
+          {/if}
+          {#if d.period !== null}
+            <p class="small muted num">{votingWords(d.period, market.currentPeriod, market.blocksPerPeriod, settled)}</p>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   {#if error}
     <div class="card stack-sm bad">
       <p>{error}</p>
@@ -144,8 +162,13 @@
   .title {
     font-size: 20px;
   }
-  .desc {
+  .desc,
+  .rules {
     white-space: pre-line;
+  }
+  .decision + .decision {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
   }
   .clamp {
     display: -webkit-box;

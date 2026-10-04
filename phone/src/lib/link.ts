@@ -183,7 +183,8 @@ export class PhoneLink {
       onChange: opts.onRelays,
       log: opts.log,
       backoffMin: opts.backoffMin,
-      backoffMax: opts.backoffMax,
+      // A relay that was down is tried again at least every 15 s, so the link comes back soon after it does.
+      backoffMax: opts.backoffMax ?? 15_000,
     });
   }
 

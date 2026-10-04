@@ -11,7 +11,9 @@ import {
   keyFingerprint,
   limitSentence,
   parseShares,
+  settledLine,
   stateWord,
+  votingWords,
 } from './format';
 
 describe('formatting', () => {
@@ -54,6 +56,27 @@ describe('formatting', () => {
     expect(limitSentence(100000)).toBe(
       'Up to 100,000 sats of trades a day go through by themselves; bigger ones wait for your OK on the computer. A buy counts at its most; a sell at its number of shares.',
     );
+  });
+
+  it('when voters decide, and what a settled market paid', () => {
+    expect(votingWords(3, 1, 10, false)).toBe('Voters decide in period 3 (in about 20 blocks)');
+    expect(votingWords(3, 1, null, false)).toBe('Voters decide in period 3 (about 2 quarters from now)');
+    expect(votingWords(3, 2, null, false)).toBe('Voters decide in period 3 (about 1 quarter from now)');
+    expect(votingWords(3, 3, null, false)).toBe('Voters decide in period 3 (now)');
+    expect(votingWords(3, 5, 10, true)).toBe('Decided in period 3');
+    expect(
+      settledLine({
+        winners: ['Yes'],
+        paid: 50000,
+        outcomes: [
+          { label: 'Yes', shares: 50000, perShare: 1 },
+          { label: 'No', shares: 20000, perShare: 0 },
+        ],
+      }),
+    ).toBe('Settled: Yes · You got 50,000 sats (50,000 Yes shares; 20,000 No shares paid nothing)');
+    expect(
+      settledLine({ winners: ['No', 'Yes'], paid: 5000, outcomes: [{ label: 'Yes', shares: 10000, perShare: 0.5 }] }),
+    ).toBe('Settled: No, Yes · You got 5,000 sats (10,000 Yes shares at 0.5 sat each)');
   });
 
   it('words', () => {

@@ -307,6 +307,9 @@ for (const [name, type] of engines) {
         expect(desktop.contested).toBe(false);
         await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes('4,905,000 sats'), 15_000);
         await eventually(() => page.getByTestId('computer').textContent(), (v) => String(v).includes('block 42'));
+        await eventually(() => page.getByTestId('settled').innerText().catch(() => ''), (v) =>
+          v.replace(/\s+/g, ' ').includes('Settled: Yes · You got 50,000 sats (50,000 Yes shares; 20,000 No shares paid nothing)'),
+        );
         const bal = (await page.getByTestId('balance').innerText()).replace(/\s+/g, ' ');
         expect(bal).toContain('Held by 1 waiting trade 100,000 sats');
         expect(bal).toContain('On its way to eCash 250,000 sats (pays out in days)');
@@ -332,12 +335,16 @@ for (const [name, type] of engines) {
         const settled = String(await page.getByTestId('outcomes').textContent());
         expect(settled).toContain('paid 1 sat a share');
         expect(settled).not.toContain('pays 1 sat if');
+        expect(await page.getByTestId('decisions').innerText()).toContain('Decided in period 3');
         await shot('market-settled');
         await page.getByRole('button', { name: 'Back' }).click();
         await page.getByText('Will it rain in Lisbon').click();
         await page.getByTestId('outcomes').waitFor();
         await eventually(() => page.getByTestId('outcomes').textContent(), (v) => String(v).includes('53%'));
         expect(await page.getByTestId('market-fees').textContent()).toContain('(at least 1,000 sats a trade) + 1,000');
+        const how = (await page.getByTestId('decisions').innerText()).replace(/\s+/g, ' ');
+        expect(how).toContain("How it's decided: IPMA records for Lisbon on 10 October 2026.");
+        expect(how).toContain('Voters decide in period 3 (in about 20 blocks)');
         await shot('market');
 
         // Buy "Yes" (the second outcome's Buy). 2,000 shares can't pay back their fees: a red warning and a second tap.
@@ -366,6 +373,9 @@ for (const [name, type] of engines) {
         expect(await page.getByTestId('last-line').textContent()).toContain('Waiting for your OK on the computer');
         await shot('trade-held');
         await page.locator('[data-testid=flow][data-state=pending]').waitFor({ timeout: 15_000 });
+        expect((await page.getByTestId('flow').innerText()).replace(/\s+/g, ' ')).toMatch(
+          /if the price is still within your most \([\d,]+ sats\)/,
+        );
         await shot('trade-pending');
         const tradeIds = [...desktop.runs.keys()];
         expect(tradeIds.length).toBe(1);

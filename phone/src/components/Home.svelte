@@ -1,7 +1,18 @@
 <script lang="ts">
   // Home: trades in flight, the balance, the computer's state and this phone's limit, positions, recent trades.
   import { createEventDispatcher, onMount } from 'svelte';
-  import { fmtChance, fmtHeight, fmtNum, fmtSats, fmtShares, fmtTime, limitSentence, MINER_FEE_SATS, stateWord } from '../lib/format';
+  import {
+    fmtChance,
+    fmtHeight,
+    fmtNum,
+    fmtSats,
+    fmtShares,
+    fmtTime,
+    limitSentence,
+    MINER_FEE_SATS,
+    settledLine,
+    stateWord,
+  } from '../lib/format';
   import { balance, flows, HOME_FRESH_MS, homeOnScreen, positions, refreshHome, status, trades } from '../lib/session';
   import type { Status } from '../lib/validate';
   import FlowCard from './FlowCard.svelte';
@@ -49,6 +60,21 @@
     }
   }
 
+  // Trade cards: every one still on its way, and of the finished ones only the newest, for an hour.
+  const HOUR_MS = 3_600_000;
+  const FINISHED = new Set(['done', 'failed', 'cancelled', 'dropped']);
+  $: shownFlows = (() => {
+    let keptOne = false;
+    return $flows.filter((f) => {
+      const record = ($trades ?? []).find((t) => t.id === f.id);
+      const finished = f.state.k === 'refused' || (f.state.k === 'pending' && !!record && FINISHED.has(record.status));
+      if (!finished) return true;
+      if (keptOne || Date.now() - f.at > HOUR_MS) return false;
+      keptOne = true; // flows are newest first
+      return true;
+    });
+  })();
+
   /** Trades that didn't go through: no amount was paid or got. */
   const GONE = new Set(['failed', 'cancelled', 'dropped']);
   /** What it cost (buy) or brought (sell), the miner fee counted as the quote does. */
@@ -68,7 +94,7 @@
 </script>
 
 <section class="stack" data-testid="home">
-  {#each $flows as f (f.id)}
+  {#each shownFlows as f (f.id)}
     <FlowCard flow={f} on:positions={() => positionsEl?.scrollIntoView({ behavior: 'smooth' })} />
   {/each}
 
@@ -120,7 +146,7 @@
     {#if !$positions}
       <p class="muted">—</p>
     {:else if !$positions.positions.length}
-      <p class="muted">No shares yet. Find a market under Markets.</p>
+      <p class="muted">{$positions.settled.length ? 'No open positions.' : 'No shares yet. Find a market under Markets.'}</p>
     {:else}
       <ul class="list">
         {#each $positions.positions as p (p.marketId + ':' + p.outcome)}
@@ -142,6 +168,22 @@
       </ul>
     {/if}
   </div>
+
+  {#if $positions && $positions.settled.length}
+    <div class="card stack-sm" data-testid="settled">
+      <h3>Settled</h3>
+      <ul class="list">
+        {#each $positions.settled as s (s.marketId)}
+          <li>
+            <button class="tap" on:click={() => dispatch('market', { id: s.marketId, title: s.title })}>
+              <div class="small muted">{s.title}</div>
+              <div class="num">{settledLine(s)}</div>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   {#if $trades && $trades.length}
     <div class="card stack-sm" data-testid="recent">

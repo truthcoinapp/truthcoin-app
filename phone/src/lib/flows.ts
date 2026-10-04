@@ -182,7 +182,7 @@ export class TradeFlows {
       else if (e instanceof NoAnswerError)
         this.set(f, {
           k: 'unconfirmed',
-          why: e.accepted ? 'No answer from your computer.' : "Couldn't reach any relay.",
+          why: e.accepted ? 'No answer from your computer.' : "Couldn't reach any relay (the relays or this phone's connection).",
         });
       else if (e instanceof BadAnswerError) this.set(f, { k: 'unconfirmed', why: e.message });
       else this.set(f, { k: 'unconfirmed', why: (e as Error)?.message || 'Something went wrong.' });

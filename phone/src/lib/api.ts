@@ -91,7 +91,7 @@ export function failureText(e: unknown): string {
   if (e instanceof NoAnswerError) {
     return e.accepted
       ? 'No answer from your computer. Is the Truthcoin App open there?'
-      : "Couldn't reach any relay. Check this phone's connection.";
+      : "Couldn't reach any relay (the relays or this phone's connection). Trying again…";
   }
   if (e instanceof v.BadAnswerError) return e.message;
   return (e as Error)?.message || 'Something went wrong.';

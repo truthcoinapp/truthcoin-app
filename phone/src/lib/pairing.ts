@@ -64,6 +64,10 @@ export async function parsePairValue(value: string, allowLocal = LOCAL_RELAYS, n
   } catch {
     throw new Error(DAMAGED);
   }
+  if (typeof o.v === 'number' && o.v > 1) {
+    // A newer app than this page (a page cached from before): the page is what needs updating.
+    throw new Error('This page is older than your Truthcoin App: reload it, then scan the code again.');
+  }
   if (o.v !== 1) {
     throw new Error(
       `This page and your Truthcoin App don't speak the same version: ${UPDATE_THE_APP}, then show a new code.`,

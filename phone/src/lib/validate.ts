@@ -165,6 +165,13 @@ export interface Holding {
   value: number;
 }
 
+/** A question the market's outcomes hang on: how it's decided, and in which voting period. */
+export interface Decision {
+  question: string;
+  rules: string;
+  period: number | null;
+}
+
 export interface Market {
   id: string;
   title: string;
@@ -175,7 +182,13 @@ export interface Market {
   outcomes: Outcome[];
   resolution: { summary: string; winners: number[] } | null;
   holdings: Holding[];
+  decisions: Decision[];
+  /** The voting period now, and blocks per period (test networks only; null elsewhere). */
+  currentPeriod: number | null;
+  blocksPerPeriod: number | null;
 }
+
+const optInt = (v: unknown, what: string, max = 1e9) => (v === null || v === undefined ? null : int(v, what, max));
 
 export function market(v: unknown): Market {
   const o = obj(v, 'market');
@@ -215,6 +228,16 @@ export function market(v: unknown): Market {
     outcomes,
     resolution,
     holdings,
+    decisions: arr(o.decisions ?? [], 'decisions', 16).map((x, n) => {
+      const d = obj(x, `decision ${n}`);
+      return {
+        question: str(d.question ?? '', 'question', 200),
+        rules: str(d.rules ?? '', 'rules', 1200, true),
+        period: optInt(d.period, 'voting period', 1e6),
+      };
+    }),
+    currentPeriod: optInt(o.current_period, 'current period', 1e6),
+    blocksPerPeriod: optInt(o.blocks_per_period, 'blocks per period', 1e6),
   };
 }
 
@@ -232,9 +255,20 @@ export interface Position {
   paid: number | null;
 }
 
+/** A market this wallet traded in that has settled, and what it paid. */
+export interface SettledEntry {
+  marketId: string;
+  title: string;
+  winners: string[];
+  /** What it paid this wallet, sats (null when the desktop can't tell). */
+  paid: number | null;
+  outcomes: { label: string; shares: number; perShare: number }[];
+}
+
 export interface Positions {
   positions: Position[];
   totalValue: number;
+  settled: SettledEntry[];
 }
 
 export function positions(v: unknown): Positions {
@@ -253,7 +287,20 @@ export function positions(v: unknown): Positions {
       paid: p.paid === null || p.paid === undefined ? null : num(p.paid, 'paid'),
     };
   });
-  return { positions: list, totalValue: num(o.total_value, 'total value') };
+  const settled = arr(o.settled ?? [], 'settled markets', 50).map((x, n) => {
+    const s = obj(x, `settled ${n}`);
+    return {
+      marketId: matching(s.market_id, 'market id', MARKET_ID),
+      title: str(s.title, 'market title', 200),
+      winners: arr(s.winners, 'winners', 64).map((w) => str(w, 'winner', 80)),
+      paid: s.paid === null || s.paid === undefined ? null : num(s.paid, 'paid out'),
+      outcomes: arr(s.outcomes, 'outcomes', 64).map((y, k) => {
+        const u = obj(y, `settled outcome ${k}`);
+        return { label: str(u.label, 'outcome label', 80), shares: num(u.shares, 'shares'), perShare: num(u.per_share, 'paid a share', 0, 1) };
+      }),
+    };
+  });
+  return { positions: list, totalValue: num(o.total_value, 'total value'), settled };
 }
 
 export interface Balance {

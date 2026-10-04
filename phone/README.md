@@ -95,11 +95,17 @@ Beyond the protocol:
   "Your computer is busy") isn't kept for the request id, so
   the phone says "Your computer is busy; asking again in a moment" and asks again under the same id after 5 s, twice
   at most.
-- **Polling:** Home asks for status, balance and positions when shown and every 30 s while shown (never from another
-  screen), and for recent trades too when the block number changes while a trade is on its way. The page also asks
+- **Polling:** Home asks for status, balance and positions when shown (reusing what came in the last 10 s) and every
+  30 s while shown (never from another screen); Settings asks for the status when it opens; and for recent trades too when the block number changes while a trade is on its way. The page also asks
   again about unanswered trades when it comes back to the front, polls held trades every 60 seconds, and follows at
   most the first 5 usable relays in `status`.
-- **Markets:** list rows show the leading outcome's chance ("Yes 53%") from the `markets` reply's `leading`.
+- **Markets:** list rows show the leading outcome's chance ("Yes 53%") from the `markets` reply's `leading`. A
+  market's page says how each question is decided and when voters decide ("in about B blocks" on test networks,
+  "about K quarters from now" elsewhere, "Decided in period N" once settled). Home lists settled markets this wallet
+  traded in: "Settled: Yes · You got 50,000 sats (50,000 Yes shares; 20,000 No shares paid nothing)".
+- **Relays:** a relay that was down is tried again at least every 15 s, and as soon as any relay connects the others
+  try too. With none open, the line says "Couldn't reach any relay (the relays or this phone's connection). Trying
+  again…".
 - **Money words:** the balance shows what the wallet holds once what's moving settles, with "Held by N waiting trades"
   and "On its way to eCash … (pays out in days)" under it only when not zero. Trade amounts include the miner fee
   (a buy costs `sats + miner_fee`, a sell brings `sats − miner_fee`). A buy that costs at least what it can pay back

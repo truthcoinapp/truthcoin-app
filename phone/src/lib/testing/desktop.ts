@@ -279,7 +279,19 @@ const FIXTURES: Record<string, (a: Record<string, unknown>, d: TestDesktop) => u
   market: (a) => {
     const m = MARKETS.find((x) => x.id === a.id) ?? MARKETS[0];
     const { created: _, ...rest } = m;
-    return { ...rest, holdings: m.id === MARKETS[0].id ? [{ outcome: 1, shares: 100000, value: 52500 }] : [] };
+    return {
+      ...rest,
+      holdings: m.id === MARKETS[0].id ? [{ outcome: 1, shares: 100000, value: 52500 }] : [],
+      decisions: [
+        {
+          question: m.title,
+          rules: m.id === MARKETS[0].id ? 'IPMA records for Lisbon on 10 October 2026.' : 'The betanet explorer.',
+          period: 3,
+        },
+      ],
+      current_period: 1,
+      blocks_per_period: 10,
+    };
   },
   positions: (_a, d) => {
     const shares = 100000 + d.boughtYes;
@@ -289,6 +301,18 @@ const FIXTURES: Record<string, (a: Record<string, unknown>, d: TestDesktop) => u
         { market_id: MARKETS[0].id, title: MARKETS[0].title, state: 'trading', outcome: 1, label: 'Yes', shares, price: 0.525, value, paid: 52250 },
       ],
       total_value: value,
+      settled: [
+        {
+          market_id: MARKETS[1].id,
+          title: MARKETS[1].title,
+          winners: ['Yes'],
+          paid: 50_000,
+          outcomes: [
+            { label: 'Yes', shares: 50_000, per_share: 1 },
+            { label: 'No', shares: 20_000, per_share: 0 },
+          ],
+        },
+      ],
     };
   },
   balance: (_a, d) => ({

@@ -150,6 +150,7 @@ class Relay {
       this.subscribe();
       this.flush();
       this.pool.changed();
+      this.pool.reachable(this); // a relay answers: the network is back, so the others try now too
     };
     ws.onmessage = (ev: { data: unknown }) => {
       if (this.ws === ws) this.message(ev.data);
@@ -413,6 +414,12 @@ export class RelayPool {
 
   urls(): string[] {
     return [...this.relays.keys()];
+  }
+
+  /** One relay connected: the others that are waiting (not sitting out a penalty) try now rather than at their
+   * backoff's end. */
+  reachable(from: Relay) {
+    for (const r of this.relays.values()) if (r !== from) r.kick();
   }
 
   /** Reconnect every relay that is waiting, now. */

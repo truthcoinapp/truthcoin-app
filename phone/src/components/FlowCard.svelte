@@ -55,8 +55,10 @@
     <p><strong>Didn't go through</strong> (the trade was {record.status}). Nothing was {flow.side === 'buy' ? 'bought' : 'sold'}.</p>
   {:else if s.k === 'pending'}
     <p>
-      <strong>Sent to your computer's node.</strong> It trades with the next Truthcoin block (about 10–17 minutes) if
-      the price is still within your limit. Recent trades on Home shows how it went.
+      <strong>Sent to your computer's node.</strong> It trades with the next Truthcoin block (about 10–17 minutes)
+      {flow.side === 'buy'
+        ? `if the price is still within your most (${fmtSats(flow.limit)})`
+        : `if it still brings at least ${fmtSats(flow.limit)}`}. Recent trades on Home shows how it went.
     </p>
     {#if s.txid}<p class="small muted mono">Transaction {shortId(s.txid)}</p>{/if}
   {:else if s.k === 'refused'}
