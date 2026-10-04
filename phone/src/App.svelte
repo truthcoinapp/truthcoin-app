@@ -149,7 +149,7 @@
       loadError = '';
       notice = r.told
         ? ''
-        : "Probably done: your computer usually forgets this phone at once, but its answer didn't come back. Check Settings › Phone on your computer to be sure.";
+        : "Probably done: your computer usually forgets this phone at once, but its answer didn't come back. Check the Phone tab on your computer to be sure.";
     } catch (e) {
       loadError = `This phone's keys may still be here: ${(e as Error).message}`;
     }
@@ -171,14 +171,20 @@
 <svelte:window on:popstate={onPop} on:hashchange={onHash} on:online={kick} />
 <svelte:document on:visibilitychange={onVisible} />
 
+<!-- The header and the last request's line stay in view while the page scrolls. -->
+<div class="top">
 <header>
   <div class="brand"><Mark size={28} /><span>Truthcoin</span></div>
   {#if $pairing && screen !== 'pair'}
     <span class="conn" class:on={online} data-testid="conn">
-      <span class="dot" aria-hidden="true"></span>{online ? 'Relays connected' : 'Connecting…'}
+      <span class="dot" aria-hidden="true"></span>{online ? 'Connected' : 'Connecting…'}
     </span>
   {/if}
 </header>
+{#if $pairing && !forgetting && screen !== 'pair' && screen !== 'loading'}
+  <LastLine />
+{/if}
+</div>
 
 {#if loadError}<p class="card bad small notice" data-testid="load-error">{loadError}</p>{/if}
 {#if notice}<p class="card held small notice" data-testid="notice">{notice}</p>{/if}
@@ -199,7 +205,6 @@
     />
   {/key}
 {:else if $pairing}
-  <LastLine />
   {#if screen === 'home'}
     <Home on:market={(e) => openMarket(e.detail.id, { title: e.detail.title })} />
   {:else if screen === 'markets'}
@@ -233,6 +238,13 @@
 {/if}
 
 <style>
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+    background: var(--bg);
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
   header {
     display: flex;
     align-items: center;

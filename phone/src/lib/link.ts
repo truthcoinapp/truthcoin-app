@@ -32,7 +32,8 @@ export interface Request {
 
 export type Reply =
   | { re: string; k: 'ok'; ok: unknown }
-  | { re: string; k: 'err'; err: string }
+  /** `busy`: the desktop was over its request limit and didn't run it (asking again, same id, is fine). */
+  | { re: string; k: 'err'; err: string; busy?: boolean }
   | { re: string; k: 'held'; text: string }
   | { re: string; k: 'unsure'; text: string }
   /** Pairing only: the desktop's 16-byte commitment nonce N for the comparison code. */
@@ -54,6 +55,16 @@ export class ReplyError extends Error {}
  */
 export class UnsureError extends Error {}
 
+/** The desktop was over its request limit and said so, again after the phone's own retries. Nothing was run. */
+export class BusyError extends ReplyError {}
+
+/** The desktop's answer when it's over its request limit (`"busy": true`, or from a desktop before that flag, these
+ * words): not stored for the id, so asking again is fine. */
+const BUSY = /^your computer is busy/i;
+/** How often, and after how long, a busy answer is asked again by itself (same id). */
+const BUSY_RETRIES = 2;
+const BUSY_WAIT_MS = 5_000;
+
 /** No answer came in time: the request may or may not have happened. Ask again with the same id. */
 export class NoAnswerError extends Error {
   constructor(readonly accepted: number) {
@@ -73,7 +84,8 @@ export function parseReply(v: unknown): Reply | null {
   if (has[0] === 'ok') return { re: o.re, k: 'ok', ok: o.ok };
   if (has[0] === 'err') {
     if (typeof o.err !== 'string') return null;
-    return { re: o.re, k: 'err', err: cleanText(o.err, 300) || 'Your computer said no.' };
+    const err = cleanText(o.err, 300) || 'Your computer said no.';
+    return o.busy === true ? { re: o.re, k: 'err', err, busy: true } : { re: o.re, k: 'err', err };
   }
   if (has[0] === 'unsure') {
     if (typeof o.unsure !== 'string') return null;
@@ -103,10 +115,15 @@ export interface RequestOptions {
   onSent?: (p: Published) => void;
   /** Give up (NoAnswerError) after this long without any answer. A held request waits for its final answer. */
   timeoutMs?: number;
-  /** Send again (sealed afresh) at these times after the first send, while no answer has come. */
+  /**
+   * Send again (sealed afresh) at these times after the first send, while no answer has come, and only if nothing at
+   * all came from the desktop since: a desktop answering other requests is alive, and this one is just slow.
+   */
   resendAt?: number[];
   /** While held, ask again this often (the final answer may have been missed). */
   heldPollMs?: number;
+  /** The desktop said it's busy; the request is asked again by itself in a few seconds. */
+  onBusy?: () => void;
 }
 
 interface Listener {
@@ -118,6 +135,9 @@ interface Listener {
 interface Waiter {
   req: Request;
   held: string | null;
+  /** When it was last sent, ms. */
+  sentAt: number;
+  busy: number;
   listeners: Listener[];
   timers: ReturnType<typeof setTimeout>[];
   poll?: ReturnType<typeof setInterval>;
@@ -132,6 +152,8 @@ export interface LinkOptions {
   log?: (msg: string) => void;
   backoffMin?: number;
   backoffMax?: number;
+  /** How long a busy answer waits before it's asked again (5 s). */
+  busyWaitMs?: number;
   /** Defaults for requests. */
   timeoutMs?: number;
   resendAt?: number[];
@@ -213,7 +235,7 @@ export class PhoneLink {
         return;
       }
       this.done.delete(req.id); // asking again after a final answer: the desktop's repeat of it is wanted
-      const fresh: Waiter = { req, held: null, listeners: [listener], timers: [] };
+      const fresh: Waiter = { req, held: null, sentAt: Date.now(), busy: 0, listeners: [listener], timers: [] };
       this.waiting.set(req.id, fresh);
       this.arm(fresh, o);
       void this.send(req).then((p) => o.onSent?.(p));
@@ -225,16 +247,27 @@ export class PhoneLink {
     for (const t of w.timers) clearTimeout(t);
     w.timers = [];
     const timeout = o.timeoutMs ?? this.opts.timeoutMs ?? 25_000;
-    for (const at of o.resendAt ?? this.opts.resendAt ?? [6_000, 15_000]) {
-      if (at < timeout) w.timers.push(setTimeout(() => w.held === null && void this.send(w.req), at));
+    for (const at of o.resendAt ?? this.opts.resendAt ?? [15_000]) {
+      if (at < timeout) {
+        w.timers.push(
+          setTimeout(() => {
+            if (w.held === null && this.lastHeard < w.sentAt) void this.send(w.req);
+          }, at),
+        );
+      }
     }
     w.timers.push(
       setTimeout(() => w.held === null && this.finish(w, new NoAnswerError(this.pool.openCount())), timeout),
     );
   }
 
+  /** When the desktop was last heard from (a reply that opened and wasn't a repeat), ms. */
+  private lastHeard = 0;
+
   /** Seal the request afresh and publish it to every relay. */
   private async send(req: Request): Promise<Published> {
+    const w = this.waiting.get(req.id);
+    if (w) w.sentAt = Date.now();
     const env = await sealMsg({ sPriv: this.keys.pPriv, sPub: this.keys.pPub, rPub: this.keys.dPub }, padJson(req));
     const ev = messageEvent(this.keys.nsec, this.keys.nd, envelopeJson(env), this.now());
     return this.pool.publish(ev);
@@ -277,9 +310,29 @@ export class PhoneLink {
     const w = this.waiting.get(r.re);
     // `held` and `unsure` leave the id open: a final answer may still follow.
     const final = r.k === 'ok' || r.k === 'err';
+    this.lastHeard = Date.now();
     if (!w) {
       if (final) this.remember(r.re);
       this.opts.onLateReply?.(r);
+      return;
+    }
+    if (r.k === 'err' && (r.busy || BUSY.test(r.err))) {
+      // Over the desktop's limit: nothing ran, and the answer isn't kept for the id. Ask again (same id) in a moment.
+      if (w.busy < BUSY_RETRIES) {
+        w.busy++;
+        for (const t of w.timers) clearTimeout(t);
+        w.timers = [
+          setTimeout(() => {
+            if (this.waiting.get(w.req.id) !== w) return;
+            void this.send(w.req);
+            this.arm(w, w.listeners[0]?.o ?? {});
+          }, this.opts.busyWaitMs ?? BUSY_WAIT_MS),
+        ];
+        for (const l of w.listeners) l.o.onBusy?.();
+        return;
+      }
+      this.remember(r.re);
+      this.finish(w, new BusyError(r.err));
       return;
     }
     if (r.k === 'unsure') {

@@ -25,7 +25,7 @@ import { fromTo, KIND, messageEvent, newNostrSecret, nostrPub, tag, type NostrEv
 import { RelayPool, type WsFactory } from './relaypool';
 import { LOCAL_RELAYS, relayList } from './relays';
 import { cleanName } from './text';
-import { BadAnswerError, paired, status } from './validate';
+import { BadAnswerError, paired, status, UPDATE_THE_APP } from './validate';
 
 /** What the QR code says. */
 export interface PairLink {
@@ -49,7 +49,7 @@ export const ATTEMPT_LIFE_S = 300;
 /** After that, a late answer may still be waited for this long. */
 export const GRACE_S = 30;
 
-const DAMAGED = 'This pairing code is damaged. On your computer, open Settings › Phone for a new one, and scan it.';
+const DAMAGED = 'This pairing code is damaged. On your computer, show a new one in the Phone tab, and scan it.';
 
 const nowSecs = () => Math.floor(Date.now() / 1000);
 
@@ -64,7 +64,11 @@ export async function parsePairValue(value: string, allowLocal = LOCAL_RELAYS, n
   } catch {
     throw new Error(DAMAGED);
   }
-  if (o.v !== 1) throw new Error('This pairing code is from another version of the app. Update the app on your computer, or reload this page.');
+  if (o.v !== 1) {
+    throw new Error(
+      `This page and your Truthcoin App don't speak the same version: ${UPDATE_THE_APP}, then show a new code.`,
+    );
+  }
   const r = relayList(o.r, allowLocal);
   if (!r) throw new Error('This pairing code has no usable relay addresses (they must start with wss://).');
   if (!isNostrPub(o.n)) throw new Error(DAMAGED);

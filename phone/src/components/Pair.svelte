@@ -251,8 +251,8 @@
       <div class="hero"><Mark size={56} /></div>
       <h2>{inApp && iphone ? 'Pair this Home Screen app' : 'Pair with your computer'}</h2>
       <p>
-        A remote for the Truthcoin App on your computer. Open the app there, go to <strong>Settings › Phone</strong>,
-        and scan its code.
+        A remote for the Truthcoin App on your computer. Open the app there, go to its <strong>Phone</strong> tab, and
+        scan its code.
       </p>
       <p class="small warn">Only scan the code your own computer shows. Never use a pairing link someone sent you.</p>
       {#if alreadyPaired}
@@ -270,7 +270,7 @@
         <summary>Can't scan? Paste the pairing link</summary>
         <form class="stack paste" on:submit|preventDefault={pastePair}>
           <p class="muted small">
-            On your own computer, click <strong>Copy link</strong> next to the QR code, and paste it here. Never paste a
+            On your own computer, click <strong>Copy link</strong> under the QR code, and paste it here. Never paste a
             link someone sent you.
           </p>
           <label for="pairlink">Pairing link</label>
@@ -342,7 +342,7 @@
       <h2>Name this phone</h2>
       <p class="small">
         The computer's key: <strong class="mono" data-testid="pair-fingerprint">{fingerprint}</strong>. Your computer shows
-        the same under Settings › Phone.
+        the same in its Phone tab.
       </p>
       <p class="small warn">Only scan the code your own computer shows. Never use a pairing link someone sent you.</p>
       {#if otherComputer && currentD}
@@ -400,21 +400,19 @@
       <p class="small muted">
         Only your own computer can ask. If it didn't, the code came from someone else: answer No, and nothing is kept.
       </p>
-      <div class="buttons">
-        <button on:click={confirmNo}>No</button>
-        <button class="primary" on:click={confirmYes}>Yes, I allowed it</button>
-      </div>
+      <button class="primary full nowrap" on:click={confirmYes}>Yes, I allowed it</button>
+      <button class="full" on:click={confirmNo}>No</button>
     </div>
   {:else if state === 'declined'}
     <div class="card stack bad" data-testid="pair-declined">
       <h2>Not paired</h2>
-      <p>Nothing was kept on this phone. If your own computer lists it under Settings › Phone, remove it there.</p>
+      <p>Nothing was kept on this phone. If your own computer lists it in its Phone tab, remove it there.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
   {:else if state === 'stopped'}
     <div class="card stack" data-testid="pair-stopped">
       <h2>Pairing stopped</h2>
-      <p>This code is used now: show a new one on your computer (Settings › Phone), and scan that.</p>
+      <p>This code is used now: show a new one on your computer (the Phone tab), and scan that.</p>
       <p class="muted small">If your computer is still asking “Allow this phone?”, refuse it.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
@@ -423,19 +421,19 @@
       <h2>Not paired</h2>
       <p>Your computer said no.</p>
       {#if refusal && refusal !== 'not allowed'}<p class="small" data-testid="pair-refusal">{refusal}</p>{/if}
-      <p class="muted small">To try again, show a new code on your computer (Settings › Phone) and scan it.</p>
+      <p class="muted small">To try again, show a new code on your computer (the Phone tab) and scan it.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
   {:else if state === 'expired'}
     <div class="card stack bad">
       <h2>This code has expired</h2>
-      <p>Pairing codes last 5 minutes. Show a new one on your computer (Settings › Phone) and scan it.</p>
+      <p>Pairing codes last 5 minutes. Show a new one on your computer (the Phone tab) and scan it.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
   {:else if state === 'noanswer'}
     <div class="card stack bad">
       <h2>No answer from your computer</h2>
-      <p>Is the Truthcoin App open there? Show a new code (Settings › Phone) and scan it again.</p>
+      <p>Is the Truthcoin App open there? Show a new code (the Phone tab) and scan it again.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
   {:else}
@@ -475,6 +473,9 @@
   }
   details[open] summary {
     margin-bottom: 10px;
+  }
+  .nowrap {
+    white-space: nowrap;
   }
   .steps {
     padding-left: 20px;

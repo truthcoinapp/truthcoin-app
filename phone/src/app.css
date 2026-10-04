@@ -65,7 +65,7 @@ body {
 #app {
   max-width: 560px;
   margin: 0 auto;
-  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+  padding: 0 max(16px, env(safe-area-inset-right))
     calc(var(--nav-h) + max(20px, env(safe-area-inset-bottom))) max(16px, env(safe-area-inset-left));
   overflow-wrap: anywhere;
 }

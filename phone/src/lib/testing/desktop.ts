@@ -57,6 +57,8 @@ export class TestDesktop {
   height = 42;
   total = 4_905_000;
   boughtYes = 0;
+  /** What each trade that ran was quoted at (its record's `sats`). */
+  readonly tradeSats = new Map<string, number>();
 
   constructor(readonly o: DesktopOptions) {}
 
@@ -142,6 +144,7 @@ export class TestDesktop {
       const run = async () => {
         await new Promise((r) => setTimeout(r, this.o.tradeMs ?? 0));
         this.runs.set(req.id, (this.runs.get(req.id) ?? 0) + 1);
+        this.tradeSats.set(req.id, (FIXTURES.quote(req.a, this) as { sats: number }).sats);
         if (req.a.side === 'buy') phone.left = Math.max(0, phone.left - cap);
         this.height += 1;
         if (req.a.side === 'buy') {
@@ -265,7 +268,11 @@ const MARKETS = [
 
 const FIXTURES: Record<string, (a: Record<string, unknown>, d: TestDesktop) => unknown> = {
   markets: () => ({
-    markets: MARKETS.map((m) => ({ id: m.id, title: m.title, state: m.state, outcomes: m.outcomes.length, volume: m.volume, created: m.created })),
+    markets: MARKETS.map((m) => {
+      const top = m.outcomes.reduce((a, b) => (b.price > a.price ? b : a));
+      const leading = m.state === 'trading' ? { label: top.label, price: top.price } : null;
+      return { id: m.id, title: m.title, state: m.state, outcomes: m.outcomes.length, volume: m.volume, created: m.created, leading };
+    }),
     page: 0,
     pages: 1,
   }),
@@ -284,7 +291,13 @@ const FIXTURES: Record<string, (a: Record<string, unknown>, d: TestDesktop) => u
       total_value: value,
     };
   },
-  balance: (_a, d) => ({ total: d.total, available: d.total - 100_000, in_pending_trades: 100_000, pending_trades: 1 }),
+  balance: (_a, d) => ({
+    total: d.total,
+    available: d.total - 100_000,
+    in_pending_trades: 100_000,
+    pending_trades: 1,
+    withdrawing: 250_000,
+  }),
   quote: (a) => {
     const m = MARKETS.find((x) => x.id === a.id) ?? MARKETS[0];
     const o = m.outcomes.find((x) => x.i === Number(a.outcome)) ?? m.outcomes[0];
@@ -315,9 +328,9 @@ const FIXTURES: Record<string, (a: Record<string, unknown>, d: TestDesktop) => u
         label: Number(r.a.outcome) === 1 ? 'Yes' : 'No',
         side: r.a.side,
         shares: r.a.shares,
-        sats: null,
+        sats: d.tradeSats.get(r.id) ?? null,
         limit: r.a.limit,
-        status: 'pending',
+        status: 'done', // each trade that runs here is "mined" into the next block
         txid: null,
       })),
   }),

@@ -2,7 +2,7 @@
   // One market: its outcomes with their chances, what this wallet holds, and the result once decided.
   import { createEventDispatcher, onMount } from 'svelte';
   import { failureText } from '../lib/api';
-  import { fmtChance, fmtSats, fmtShares, stateWord } from '../lib/format';
+  import { fmtChance, fmtPaid, fmtSats, fmtShares, stateWord } from '../lib/format';
   import { currentApi } from '../lib/session';
   import type { Market, Side } from '../lib/validate';
   import Back from './Back.svelte';
@@ -35,6 +35,30 @@
   $: held = (i: number) => market?.holdings.find((h) => h.outcome === i) ?? null;
   $: winners = new Set(market?.resolution?.winners ?? []);
   $: longText = (market?.description.length ?? 0) > 220;
+  $: settled = !!market?.resolution;
+  const labelOf = (o: { i: number; label: string }) => o.label || `Outcome ${o.i + 1}`;
+  /** What each share of outcome `o` paid at settlement: 1 sat for a sole winner; with several, each winner's final
+   * price; nothing for the rest. */
+  const paidOf = (m: Market, o: { i: number; price: number }) => {
+    const w = m.resolution?.winners ?? [];
+    if (!w.includes(o.i)) return 0;
+    return w.length === 1 ? 1 : o.price;
+  };
+  /** "Settled: Yes. Each Yes share paid 1 sat; No paid nothing." (or, with several winners, what each paid). */
+  function settledText(m: Market): string {
+    const won = m.outcomes.filter((o) => winners.has(o.i));
+    const lost = m.outcomes.filter((o) => !winners.has(o.i));
+    const lostText = lost.length === 1 ? `${labelOf(lost[0])} paid nothing` : lost.length ? 'the others paid nothing' : '';
+    if (won.length === 1) {
+      const w = labelOf(won[0]);
+      return `Settled: ${w}. Each ${w} share paid 1 sat${lostText ? `; ${lostText}` : ''}.`;
+    }
+    if (won.length > 1) {
+      const each = won.map((o) => `each ${labelOf(o)} share paid ${fmtPaid(paidOf(m, o))}`).join(', ');
+      return `Voters didn't settle on one answer, so ${each}${lostText ? `; ${lostText}` : ''}.`;
+    }
+    return 'Settled: no outcome paid.';
+  }
 </script>
 
 <section class="stack" data-testid="market">
@@ -51,8 +75,9 @@
           <button class="link small" on:click={() => (more = !more)}>{more ? 'Less' : 'More'}</button>
         {/if}
       {/if}
-      <p class="small muted num">
-        Volume {fmtSats(market.volume)} · trading fee {Math.round(market.feeRate * 1000) / 10}%
+      <p class="small muted num" data-testid="market-fees">
+        Volume {fmtSats(market.volume)} · fee {Math.round(market.feeRate * 1000) / 10}% (at least 1,000 sats a trade) + 1,000
+        sats to the miner
       </p>
     {/if}
   </div>
@@ -64,27 +89,33 @@
     </div>
   {/if}
 
-  {#if market?.resolution}
+  {#if market && settled}
     <div class="card stack-sm good" data-testid="resolution">
-      <h3>Result</h3>
-      <p>{market.resolution.summary || 'Decided.'}</p>
-      <p class="small muted">Winning shares were paid out automatically; there's nothing to claim.</p>
+      <h3>Settled</h3>
+      <p>{settledText(market)}</p>
+      <p class="small muted">Shares were paid out automatically; there's nothing to claim.</p>
     </div>
   {/if}
 
   {#if market}
     <div class="card stack" data-testid="outcomes">
-      <p class="small muted">Each share pays 1 sat if its outcome happens.</p>
+      {#if !settled}<p class="small muted">Each share pays 1 sat if its outcome happens.</p>{/if}
       {#each market.outcomes as o (o.i)}
         {@const h = held(o.i)}
         <div class="stack-sm outcome" class:won={winners.has(o.i)}>
           <div class="row">
-            <strong class="grow">{o.label || `Outcome ${o.i + 1}`}{winners.has(o.i) ? ' · happened' : ''}</strong>
-            <span class="chance num">{fmtChance(o.price)}</span>
+            <strong class="grow">{labelOf(o)}</strong>
+            {#if settled}
+              <span class="paid num">{paidOf(market, o) > 0 ? `paid ${fmtPaid(paidOf(market, o))} a share` : 'paid nothing'}</span>
+            {:else}
+              <span class="chance num">{fmtChance(o.price)}</span>
+            {/if}
           </div>
-          <div class="bar" role="img" aria-label="Chance {fmtChance(o.price)}">
-            <span style:width="{Math.round(o.price * 1000) / 10}%"></span>
-          </div>
+          {#if !settled}
+            <div class="bar" role="img" aria-label="Chance {fmtChance(o.price)}">
+              <span style:width="{Math.round(o.price * 1000) / 10}%"></span>
+            </div>
+          {/if}
           {#if h && h.shares > 0}
             <p class="small num">You hold {fmtShares(h.shares)} shares, worth about {fmtSats(h.value)}.</p>
           {/if}
@@ -131,8 +162,11 @@
     border-top: 1px solid var(--border);
     padding-top: 14px;
   }
-  .won .chance,
+  .won .paid,
   .won strong {
     color: var(--accent);
+  }
+  .paid {
+    font-weight: 650;
   }
 </style>

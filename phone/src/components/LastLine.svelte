@@ -19,13 +19,16 @@
   <div class="line {$last.state}" role="status" aria-live="polite" data-testid="last-line">
     {#if $last.state === 'asking'}
       <span class="spinner small-spin" aria-hidden="true"></span>
-      <span class="grow">Asking your computer{$last.what ? ` for ${$last.what}` : ''}…</span>
+      <span class="grow">Asking your computer{$last.what ? ` ${$last.what}` : ''}…</span>
+    {:else if $last.state === 'waiting'}
+      <span class="spinner small-spin" aria-hidden="true"></span>
+      <span class="grow">{$last.text}</span>
     {:else if $last.state === 'answered'}
       <span class="dot" aria-hidden="true"></span>
       <span class="grow">Your computer answered {ago($last.at, now)}.</span>
     {:else if $last.state === 'held'}
       <span class="dot" aria-hidden="true"></span>
-      <span class="grow">Waiting for you to confirm on your computer.</span>
+      <span class="grow">Waiting for your OK on the computer (over today's limit).</span>
     {:else}
       <span class="dot" aria-hidden="true"></span>
       <span class="grow">{$last.text}</span>
@@ -63,6 +66,9 @@
   }
   .answered .dot {
     background: var(--accent);
+  }
+  .waiting {
+    color: var(--warn);
   }
   .held {
     color: var(--warn);

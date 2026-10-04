@@ -1,8 +1,13 @@
+<script context="module" lang="ts">
+  /** When the list last came in (ms): showing Markets again within 10 s reuses it (the Refresh button always asks). */
+  let loadedAt = 0;
+</script>
+
 <script lang="ts">
   // The markets, trading first, newest first, a page at a time.
   import { createEventDispatcher, onMount } from 'svelte';
   import { failureText } from '../lib/api';
-  import { fmtSats, stateWord } from '../lib/format';
+  import { fmtChance, fmtSats, stateWord } from '../lib/format';
   import { currentApi, markets } from '../lib/session';
   import type { MarketSummary } from '../lib/validate';
 
@@ -15,6 +20,7 @@
     error = '';
     try {
       markets.set(await currentApi().markets(page));
+      loadedAt = Date.now();
     } catch (e) {
       error = failureText(e);
     } finally {
@@ -24,7 +30,7 @@
 
   // The list as it is now, whenever Markets is shown (the last one shows meanwhile).
   onMount(() => {
-    void load($markets?.page ?? 0);
+    if (!$markets || Date.now() - loadedAt > 10_000) void load($markets?.page ?? 0);
   });
 </script>
 
@@ -49,7 +55,8 @@
                 <span class="badge {m.state}">{stateWord(m.state)}</span>
               </div>
               <div class="small muted num">
-                {m.outcomes} outcomes · volume {fmtSats(m.volume)}
+                {#if m.leading}<strong class="lead">{m.leading.label || 'Leading'} {fmtChance(m.leading.price)}</strong> ·
+                {/if}{m.outcomes} outcomes · volume {fmtSats(m.volume)}
               </div>
             </button>
           </li>
@@ -71,6 +78,10 @@
 </section>
 
 <style>
+  .lead {
+    color: var(--text);
+    font-weight: 650;
+  }
   .refresh {
     font-size: 22px;
     min-width: 48px;

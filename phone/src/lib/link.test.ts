@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { fromHex } from './bytes';
 import { envelopeJson, generateKey, exportPub, importPrivate, openMsg, padJson, parseEnvelope, pubBytes, sealMsg, unpadJson } from './crypto';
-import { NoAnswerError, PhoneLink, ReplyError, UnsureError, parseReply, type Reply, type Request } from './link';
+import { BusyError, NoAnswerError, PhoneLink, ReplyError, UnsureError, parseReply, type Reply, type Request } from './link';
+import { Api, type Tracking } from './api';
 import { messageEvent, newNostrSecret, nostrPub, tag, type NostrEvent } from './nostr';
 import { fakeWsFactory, tick, waitFor, type FakeWs } from './testing/fakews';
 
@@ -66,6 +67,8 @@ describe('replies', () => {
     expect(parseReply({ re, ok: { a: 1 } })).toEqual({ re, k: 'ok', ok: { a: 1 } });
     expect(parseReply({ re, err: 'no‮ way' })).toEqual({ re, k: 'err', err: 'no way' });
     expect(parseReply({ re, held: { text: 'wait' } })).toEqual({ re, k: 'held', text: 'wait' });
+    expect(parseReply({ re, err: 'Slow down', busy: true })).toEqual({ re, k: 'err', err: 'Slow down', busy: true });
+    expect(parseReply({ re, err: 'x', busy: 'yes' })).toEqual({ re, k: 'err', err: 'x' });
     expect(parseReply({ re, unsure: 'May have gone' })).toEqual({ re, k: 'unsure', text: 'May have gone' });
     expect(parseReply({ re, unsure: '' })).toEqual({ re, k: 'unsure', text: 'Not confirmed: check Positions before trying again' });
     expect(parseReply({ re, unsure: 5 })).toBeNull();
@@ -207,6 +210,79 @@ describe('the phone link', () => {
     expect(sent[1].req).toEqual(first);
     await reply({ re: first.id, ok: { status: 'pending', txid: 'dd' } });
     expect(await again).toEqual({ status: 'pending', txid: 'dd' });
+  });
+
+  it("doesn't resend a request that is only slow: the desktop was heard from meanwhile", async () => {
+    const { link, sentRequests, reply } = await setup({ timeoutMs: 1500, resendAt: [300] });
+    const slow = link.request('market', { id: 'a1b2c3d4e5f6' });
+    slow.catch(() => undefined);
+    const quick = link.request('status');
+    const sent = await sentRequests(2);
+    const q = sent.find((s) => s.req.m === 'status')!.req;
+    await reply({ re: q.id, ok: { fine: true } }); // the desktop answers another request: it's alive
+    expect(await quick).toEqual({ fine: true });
+    await tick(500);
+    expect((await sentRequests(2)).length).toBe(2); // no resend of the slow one
+    await expect(slow).rejects.toThrow(NoAnswerError);
+  });
+
+  it('asks again by itself (same id) when the desktop says it is busy, then takes the answer', async () => {
+    const { link, sentRequests, reply } = await setup({ busyWaitMs: 100 });
+    let busy = 0;
+    const p = link.request('status', {}, { onBusy: () => busy++ });
+    const [{ req }] = await sentRequests();
+    await reply({ re: req.id, err: 'Your computer is busy: ask again in a few seconds' });
+    const again = await sentRequests(2);
+    expect(again[1].req).toEqual(req); // the same request
+    expect(busy).toBe(1);
+    await reply({ re: req.id, ok: 42 });
+    expect(await p).toBe(42);
+  });
+
+  it('knows busy by its flag, whatever the words', async () => {
+    const { link, sentRequests, reply } = await setup({ busyWaitMs: 50 });
+    let busy = 0;
+    const p = link.request('status', {}, { onBusy: () => busy++ });
+    const [{ req }] = await sentRequests();
+    await reply({ re: req.id, err: 'Too many requests just now', busy: true });
+    await sentRequests(2);
+    expect(busy).toBe(1);
+    await reply({ re: req.id, ok: 7 });
+    expect(await p).toBe(7);
+  });
+
+  it('gives up with BusyError after two busy answers asked again', async () => {
+    const { link, sentRequests, reply } = await setup({ busyWaitMs: 50 });
+    const p = link.request('status');
+    p.catch(() => undefined);
+    const [{ req }] = await sentRequests();
+    for (let i = 0; i < 3; i++) {
+      await sentRequests(i + 1);
+      await reply({ re: req.id, err: 'Your computer is busy: ask again in a few seconds' });
+    }
+    await expect(p).rejects.toThrow(BusyError);
+  });
+
+  it('asks once more by itself when a relay took a read but no answer came', async () => {
+    const { link, relay, sentRequests, reply } = await setup({ timeoutMs: 200, resendAt: [] });
+    const said: string[] = [];
+    const track = (): Tracking => ({
+      ok: () => said.push('ok'),
+      fail: () => said.push('fail'),
+      again: () => said.push('again'),
+    });
+    const api = new Api(link, track, 50);
+    const p = api.status();
+    const [first] = await sentRequests();
+    relay.push(['OK', first.ev.id, true, '']); // a relay took it; no answer comes
+    const second = await sentRequests(2);
+    expect(second[1].req.id).not.toBe(first.req.id); // asked afresh
+    await reply({
+      re: second[1].req.id,
+      ok: { app: '0.1.0', node: 'running', height: 1, synced: true, network: 'betanet', name: 'P', limit_sats: 1, left_sats: 1, relays: [] },
+    });
+    expect((await p).height).toBe(1);
+    expect(said).toEqual(['again', 'ok']);
   });
 
   it('lets two asks of the same id share one answer', async () => {

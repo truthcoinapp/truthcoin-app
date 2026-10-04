@@ -58,7 +58,9 @@ describe('the pairing code', () => {
   });
 
   it('refuses other versions and junk', async () => {
-    await expect(parsePairValue(enc({ ...good, v: 2 }), false)).rejects.toThrow(/version/);
+    await expect(parsePairValue(enc({ ...good, v: 2 }), false)).rejects.toThrow(
+      "This page and your Truthcoin App don't speak the same version: update the app (Settings › About › Check for a newer version), then show a new code.",
+    );
     await expect(parsePairValue('!!!', false)).rejects.toThrow(/damaged/);
     await expect(parsePairValue(enc([1, 2]), false)).rejects.toThrow(/damaged/);
     await expect(parsePairValue(b64u(new Uint8Array([0xff, 0xfe])), false)).rejects.toThrow(/damaged/);

@@ -77,11 +77,21 @@ describe('answers from the desktop', () => {
 
   it('markets: a page of summaries', () => {
     const p = v.marketsPage({
-      markets: [{ id: 'a1b2c3d4e5f6', title: 'T', state: 'trading', outcomes: 2, volume: 0, created: 10 }],
+      markets: [
+        { id: 'a1b2c3d4e5f6', title: 'T', state: 'trading', outcomes: 2, volume: 0, created: 10, leading: { label: 'Yes', price: 0.63 } },
+        { id: 'b1b2c3d4e5f6', title: 'S', state: 'settled', outcomes: 2, volume: 0, created: 9, leading: null },
+        { id: 'c1b2c3d4e5f6', title: 'Old', state: 'trading', outcomes: 2, volume: 0, created: 8 },
+      ],
       page: 0,
       pages: 1,
     });
     expect(p.markets[0].title).toBe('T');
+    expect(p.markets[0].leading).toEqual({ label: 'Yes', price: 0.63 });
+    expect(p.markets[1].leading).toBeNull();
+    expect(p.markets[2].leading).toBeNull(); // a desktop that doesn't say
+    expect(() =>
+      v.marketsPage({ markets: [{ id: 'a1', title: 'T', state: 'trading', outcomes: 2, volume: 0, created: 1, leading: { label: 'Yes', price: 1.5 } }], page: 0, pages: 1 }),
+    ).toThrow();
     expect(() => v.marketsPage({ markets: 'x', page: 0, pages: 1 })).toThrow();
   });
 
@@ -119,7 +129,12 @@ describe('answers from the desktop', () => {
       available: 5,
       inPendingTrades: 5,
       pendingTrades: 1,
+      withdrawing: 0,
     });
+    expect(v.balance({ total: 10, available: 5, in_pending_trades: 5, pending_trades: 1, withdrawing: 7 }).withdrawing).toBe(7);
+    expect(() => v.balance({ total: 10, available: 5, in_pending_trades: 5, pending_trades: 1, withdrawing: -1 })).toThrow(
+      /same version/,
+    );
     const pos = v.positions({
       positions: [
         { market_id: 'a1b2c3d4e5f6', title: 'T', state: 'trading', outcome: 1, label: 'Yes', shares: 5, price: 0.5, value: 2.5, paid: null },

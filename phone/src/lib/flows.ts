@@ -161,7 +161,7 @@ export class TradeFlows {
   }
 
   private async run(f: TradeFlow) {
-    const t = this.track?.('trade', () => this.askAgain(f.id));
+    const t = this.track?.(`trade:${f.side}`, () => this.askAgain(f.id));
     try {
       const r = await this.link.ask(f.req, {
         timeoutMs: this.timeoutMs,
@@ -169,6 +169,7 @@ export class TradeFlows {
           t?.held?.(text);
           this.set(f, { k: 'held', text });
         },
+        onBusy: () => t?.busy?.(),
       });
       const done = tradeDone(r);
       t?.ok();

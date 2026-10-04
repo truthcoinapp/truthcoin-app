@@ -42,6 +42,15 @@
   // most they can pay, so no price move lowers it).
   $: counts = quote ? (side === 'buy' ? quote.limit : shares ?? 0) : 0;
   $: overLimit = quote && $status ? counts > $status.leftSats : false;
+  // Fees, and their share of the trade: of what a buy costs, or of what a sell brings before fees.
+  $: fees = quote ? quote.fee + quote.minerFee : 0;
+  $: feeShare = quote
+    ? Math.round((100 * fees) / Math.max(1, side === 'buy' ? quote.sats + quote.minerFee : quote.sats + quote.fee))
+    : 0;
+  // A buy that costs at least what it can ever pay (a sat a share): a certain loss. It takes a second tap.
+  $: loses = !!quote && !!quoteFor && quoteFor.side === 'buy' && quote.sats + quote.minerFee >= quoteFor.shares;
+  let lossSeen = false;
+  $: if (!loses) lossSeen = false;
 
   function pick(s: Side) {
     if (quoting) return;
@@ -79,6 +88,10 @@
     if (shares !== quoteFor.shares || side !== quoteFor.side) {
       quote = null;
       quoteFor = null;
+      return;
+    }
+    if (loses && !lossSeen) {
+      lossSeen = true; // the first tap shows it can't pay back; the second goes ahead
       return;
     }
     const t = quoteFor;
@@ -134,7 +147,7 @@
           disabled={quoting}
           inputmode="numeric"
           autocomplete="off"
-          placeholder={side === 'sell' ? `up to ${fmtShares(heldShares)}` : 'for example 1,000'}
+          placeholder={side === 'sell' ? `up to ${fmtShares(heldShares)}` : 'for example 50,000'}
           enterkeyhint="go"
         />
         {#if side === 'sell'}
@@ -160,7 +173,15 @@
           <p class="small num">
             Chance of {label}: {fmtChanceFine(quote.priceNow)} now, about {fmtChanceFine(quote.priceAfter)} after this trade.
           </p>
-          <p class="small muted num">Trading fee {fmtSats(quote.fee)} · miner fee {fmtSats(quote.minerFee)}</p>
+          <p class="small muted num" data-testid="quote-fees">
+            Fees {fmtSats(fees)} ({feeShare}% of this trade): trading fee {fmtSats(quote.fee)}, miner fee {fmtSats(quote.minerFee)}
+          </p>
+          {#if loses}
+            <p class="small error" data-testid="quote-loses">
+              <strong>This costs more than it can ever pay back ({fmtSats(fees)} of fees on this trade). Buy more shares, or
+                skip it.</strong>
+            </p>
+          {/if}
           <p class="small muted">
             A price is a guide: the trade goes through at the next Truthcoin block's price, and not at all if that is
             {side === 'buy' ? 'over your most' : 'under your least'}.
@@ -168,7 +189,7 @@
           {#if overLimit && $status}
             <p class="small warn">
               This trade counts {fmtSats(counts)} against this phone's limit, more than the {fmtSats($status.leftSats)} left
-              today, so your computer will ask you to confirm it. A buy counts at its most; a sell at its number of shares (a sat each).
+              today, so your computer will ask you to confirm it. A buy counts at its most; a sell at its number of shares.
             </p>
           {/if}
           {#if stale}
@@ -178,8 +199,12 @@
       {/if}
 
       {#if quote && !stale}
-        <button class="primary full" type="submit" disabled={starting}>
-          {quoteFor?.side === 'sell' ? 'Sell' : 'Buy'} {fmtShares(quoteFor?.shares ?? 0)} {label}
+        <button class="primary full" class:danger-fill={loses && lossSeen} type="submit" disabled={starting}>
+          {#if loses && lossSeen}
+            Buy anyway, at a loss
+          {:else}
+            {quoteFor?.side === 'sell' ? 'Sell' : 'Buy'} {fmtShares(quoteFor?.shares ?? 0)} {label}
+          {/if}
         </button>
         <button class="full" type="button" on:click={getPrice} disabled={quoting}>Get a new price</button>
       {:else}
@@ -220,6 +245,10 @@
     border-radius: 12px;
     background: var(--inset);
     border: 1px solid var(--border);
+  }
+  .danger-fill {
+    background: var(--error);
+    border-color: var(--error);
   }
   .lead {
     font-size: 18px;

@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { defaultDeviceName, fmtChance, fmtChanceFine, fmtNum, fmtSats, fmtShares, keyFingerprint, parseShares, stateWord } from './format';
+import {
+  defaultDeviceName,
+  fmtChance,
+  fmtChanceFine,
+  fmtDate,
+  fmtNum,
+  fmtPaid,
+  fmtSats,
+  fmtShares,
+  keyFingerprint,
+  limitSentence,
+  parseShares,
+  stateWord,
+} from './format';
 
 describe('formatting', () => {
   it('sats', () => {
@@ -33,6 +46,16 @@ describe('formatting', () => {
     );
     expect(keyFingerprint('!!')).toBe('—');
   });
+  it('dates as "5 Oct 2026", payouts per share, the limit sentence', () => {
+    expect(fmtDate(new Date(2026, 9, 5))).toBe('5 Oct 2026');
+    expect(fmtPaid(1)).toBe('1 sat');
+    expect(fmtPaid(0.5)).toBe('0.5 sat');
+    expect(fmtPaid(0)).toBe('nothing');
+    expect(limitSentence(100000)).toBe(
+      'Up to 100,000 sats of trades a day go through by themselves; bigger ones wait for your OK on the computer. A buy counts at its most; a sell at its number of shares.',
+    );
+  });
+
   it('words', () => {
     expect(stateWord('trading')).toBe('Trading');
     expect(stateWord('some_state')).toBe('Some state');

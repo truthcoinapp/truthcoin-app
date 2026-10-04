@@ -58,7 +58,7 @@ go to `e2e/shots/<engine>/`.
 ## Pairing safeguards (from the v0.1.0 security review)
 
 - **Links:** an expiry `x` more than 10 minutes ahead is refused. The Name and waiting screens show the computer's key
-  fingerprint (as the desktop shows it in Settings › Phone), warn when it's a different computer from the one paired
+  fingerprint (as the desktop shows it in its Phone tab), warn when it's a different computer from the one paired
   now, and say: "Only scan the code your own computer shows. Never use a pairing link someone sent you."
 - **Attempts:** one pairing code's keys (P, E, nP, the request id, the name, then N) are kept in IndexedDB only while
   that pairing is under way, at most 5 minutes plus 30 s from when they were made, and never written once the run is
@@ -72,7 +72,7 @@ go to `e2e/shots/<engine>/`.
   waiting trades are kept per pairing (`pending:<npub>`), and pairing drops every other pairing's list; the status
   reply's name, limit or relays are saved only over the same pairing. Other tabs reload when one pairs or forgets (BroadcastChannel).
 - **Forget** asks the desktop to `unpair` (a few seconds, best effort), then deletes the whole IndexedDB database. No
-  answer to `unpair` reads as "Probably done… check Settings › Phone on your computer"; a failed delete is reported.
+  answer to `unpair` reads as "Probably done… check the Phone tab on your computer"; a failed delete is reported.
 - **Relays:** a repeat of an accepted event is dropped before anything else; a cheap check (kind, from the desktop,
   to us) runs before the signature check. Strangers' events count for nothing (anyone can address the phone); a relay
   passing on more than 50 events in 10 s that pass the cheap check, or more than 2 frames over 256 KiB in a minute,
@@ -85,6 +85,22 @@ go to `e2e/shots/<engine>/`.
   server relaxes it, for Vite's injected styles. The browser checks fail on any console error, CSP included; WebKit's
   screenshots inject a stylesheet of Playwright's own, and only those refusals (one per screenshot) are set aside.
 
-Beyond the protocol: the phone also asks again about unanswered trades (and asks for fresh data) when the page comes
-back to the front, polls held trades every 60 seconds, refreshes Home when shown and every 30 s while shown, and
-follows at most the first 5 usable relays in `status`.
+Beyond the protocol:
+- **Asking:** a request with no answer is sent again once, after 15 s, and only if nothing at all came from the
+  computer meanwhile (a computer answering other requests is alive; this one is just slow). A read with no answer
+  that a relay did take is asked once more by itself ("Your computer hasn't answered yet (it may be reconnecting).
+  Asking again…"). With no relay open, a request gives up after 25 s, and the last failed read is asked again when a
+  relay comes back.
+- **Busy:** the computer's busy answer (`"busy": true` beside its `err`; from an older computer, an `err` starting
+  "Your computer is busy") isn't kept for the request id, so
+  the phone says "Your computer is busy; asking again in a moment" and asks again under the same id after 5 s, twice
+  at most.
+- **Polling:** Home asks for status, balance and positions when shown and every 30 s while shown (never from another
+  screen), and for recent trades too when the block number changes while a trade is on its way. The page also asks
+  again about unanswered trades when it comes back to the front, polls held trades every 60 seconds, and follows at
+  most the first 5 usable relays in `status`.
+- **Markets:** list rows show the leading outcome's chance ("Yes 53%") from the `markets` reply's `leading`.
+- **Money words:** the balance shows what the wallet holds once what's moving settles, with "Held by N waiting trades"
+  and "On its way to eCash … (pays out in days)" under it only when not zero. Trade amounts include the miner fee
+  (a buy costs `sats + miner_fee`, a sell brings `sats − miner_fee`). A buy that costs at least what it can pay back
+  is shown in red and takes a second tap.

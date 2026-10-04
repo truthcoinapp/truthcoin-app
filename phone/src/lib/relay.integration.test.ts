@@ -284,6 +284,28 @@ describe('through a relay that repeats and reorders everything', () => {
     }
   });
 
+  it("stays well under the desktop's request budgets in normal use (no resends, no repeats)", async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws }).start();
+    try {
+      const { pairing } = await pairWith(desktop);
+      const link = phoneLink(pairing); // the app's own resend and timeout defaults
+      const api = new Api(link);
+      const before = desktop.requests.length; // pairing's status probes
+      // Home, then Markets, a market and a price, then two of Home's 30-second polls.
+      await Promise.all([api.status(), api.balance(), api.positions(), api.trades()]);
+      await api.markets(0);
+      await api.market('a1b2c3d4e5f6');
+      await api.quote({ id: 'a1b2c3d4e5f6', outcome: 1, shares: 50000, side: 'buy' });
+      for (let i = 0; i < 2; i++) await Promise.all([api.status(), api.balance(), api.positions()]);
+      const sent = desktop.requests.slice(before);
+      expect(sent.length).toBe(13); // 13 new requests: the budget is 60 a minute
+      expect(new Set(sent.map((r) => r.id)).size).toBe(13); // nothing sent twice
+      link.stop();
+    } finally {
+      desktop.stop();
+    }
+  });
+
   it('asks the computer to forget this phone (unpair)', async () => {
     const desktop = await new TestDesktop({ relays: [url], ws }).start();
     try {

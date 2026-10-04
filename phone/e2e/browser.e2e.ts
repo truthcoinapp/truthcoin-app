@@ -307,6 +307,9 @@ for (const [name, type] of engines) {
         expect(desktop.contested).toBe(false);
         await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes('4,905,000 sats'), 15_000);
         await eventually(() => page.getByTestId('computer').textContent(), (v) => String(v).includes('block 42'));
+        const bal = (await page.getByTestId('balance').innerText()).replace(/\s+/g, ' ');
+        expect(bal).toContain('Held by 1 waiting trade 100,000 sats');
+        expect(bal).toContain('On its way to eCash 250,000 sats (pays out in days)');
         await eventually(() => page.getByTestId('positions').textContent(), (v) => String(v).includes('100,000 shares'));
         await shot('home');
         await page.emulateMedia({ colorScheme: 'light' });
@@ -315,25 +318,52 @@ for (const [name, type] of engines) {
 
         await page.getByRole('button', { name: 'Markets' }).click();
         await page.getByText('Will it rain in Lisbon').waitFor();
+        // A trading market's row shows its leading outcome's chance; a settled one's doesn't.
+        const list = (await page.getByTestId('markets').innerText()).replace(/\s+/g, ' ');
+        expect(list).toContain('Yes 53% · 2 outcomes');
+        expect(list).not.toContain('Yes 98%');
         await shot('markets');
+        // A settled market says what each share paid, not the last chances.
+        await page.getByText('Will the betanet reach block 20,000').click();
+        await page.getByTestId('resolution').waitFor();
+        expect(await page.getByTestId('resolution').textContent()).toContain(
+          'Settled: Yes. Each Yes share paid 1 sat; No paid nothing.',
+        );
+        const settled = String(await page.getByTestId('outcomes').textContent());
+        expect(settled).toContain('paid 1 sat a share');
+        expect(settled).not.toContain('pays 1 sat if');
+        await shot('market-settled');
+        await page.getByRole('button', { name: 'Back' }).click();
         await page.getByText('Will it rain in Lisbon').click();
         await page.getByTestId('outcomes').waitFor();
         await eventually(() => page.getByTestId('outcomes').textContent(), (v) => String(v).includes('53%'));
+        expect(await page.getByTestId('market-fees').textContent()).toContain('(at least 1,000 sats a trade) + 1,000');
         await shot('market');
 
-        // Buy "Yes" (the second outcome's Buy).
+        // Buy "Yes" (the second outcome's Buy). 2,000 shares can't pay back their fees: a red warning and a second tap.
         await page.getByTestId('outcomes').getByRole('button', { name: 'Buy' }).nth(1).click();
+        expect(await page.locator('#shares').getAttribute('placeholder')).toBe('for example 50,000');
         await page.fill('#shares', '2,000');
+        await page.getByRole('button', { name: 'Get a price' }).click();
+        await page.getByTestId('quote-loses').waitFor();
+        expect(await page.getByTestId('quote-loses').textContent()).toContain('This costs more than it can ever pay back');
+        await shot('quote-loses');
+        await page.getByRole('button', { name: 'Buy 2,000 Yes' }).click();
+        await page.getByRole('button', { name: 'Buy anyway, at a loss' }).waitFor();
+        expect(await page.locator('[data-testid=flow]').count()).toBe(0); // the first tap sent nothing
+        // 50,000 shares instead.
+        await page.fill('#shares', '50,000');
         await page.getByRole('button', { name: 'Get a price' }).click();
         await page.getByTestId('quote').waitFor();
         const q = String(await page.getByTestId('quote').textContent()).replace(/\s+/g, ' ');
         expect(q).toMatch(/About [\d,]+ sats, at most [\d,]+ sats/);
+        expect(q).toMatch(/Fees [\d,]+ sats \(\d+% of this trade\)/);
         expect(q).toMatch(/This trade counts [\d,]+ sats against this phone's limit, more than the 1,000 sats left today/);
-        expect(q).toContain('a sell at its number of shares (a sat each)');
+        expect(q).not.toContain('can ever pay back');
         await shot('quote');
-        await page.getByRole('button', { name: 'Buy 2,000 Yes' }).click();
+        await page.getByRole('button', { name: 'Buy 50,000 Yes' }).click();
         await page.locator('[data-testid=flow][data-state=held]').waitFor({ timeout: 15_000 });
-        expect(await page.getByTestId('last-line').textContent()).toContain('Waiting for you to confirm');
+        expect(await page.getByTestId('last-line').textContent()).toContain('Waiting for your OK on the computer');
         await shot('trade-held');
         await page.locator('[data-testid=flow][data-state=pending]').waitFor({ timeout: 15_000 });
         await shot('trade-pending');
@@ -347,8 +377,16 @@ for (const [name, type] of engines) {
         const total = desktop.total.toLocaleString('en-US');
         await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes(`${total} sats`), 15_000);
         await eventually(() => page.getByTestId('computer').textContent(), (v) => String(v).includes('block 43'), 15_000);
-        await eventually(() => page.getByTestId('positions').textContent(), (v) => String(v).includes('102,000 shares'), 15_000);
+        await eventually(() => page.getByTestId('positions').textContent(), (v) => String(v).includes('150,000 shares'), 15_000);
         expect(await page.getByTestId('computer').textContent()).toContain('Left today for trades');
+        // The "Sent…" card turns into what happened, in place, with the miner fee counted.
+        const cost = (desktop.tradeSats.get(tradeIds[0]) ?? 0) + 1000;
+        await eventually(
+          () => page.getByTestId('flow-done').textContent(),
+          (v) => String(v).includes(`Done: bought 50,000 Yes for ${cost.toLocaleString('en-US')} sats.`),
+          15_000,
+        );
+        expect(await page.getByTestId('recent').innerText()).toContain(`about ${cost.toLocaleString('en-US')} sats`);
         await shot('home-after-trade');
 
         // Reload: still paired, with a key no script can read.

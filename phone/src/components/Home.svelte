@@ -1,8 +1,8 @@
 <script lang="ts">
   // Home: trades in flight, the balance, the computer's state and this phone's limit, positions, recent trades.
   import { createEventDispatcher, onMount } from 'svelte';
-  import { fmtChance, fmtHeight, fmtNum, fmtSats, fmtShares, fmtTime, stateWord } from '../lib/format';
-  import { balance, flows, homeOnScreen, positions, refreshHome, status, trades } from '../lib/session';
+  import { fmtChance, fmtHeight, fmtNum, fmtSats, fmtShares, fmtTime, limitSentence, MINER_FEE_SATS, stateWord } from '../lib/format';
+  import { balance, flows, HOME_FRESH_MS, homeOnScreen, positions, refreshHome, status, trades } from '../lib/session';
   import type { Status } from '../lib/validate';
   import FlowCard from './FlowCard.svelte';
   import HomeScreenHint from './HomeScreenHint.svelte';
@@ -11,11 +11,12 @@
   let refreshing = false;
   let positionsEl: HTMLElement;
 
-  async function refresh() {
+  /** The Refresh button always asks; showing Home reuses data from the last few seconds. */
+  async function refresh(maxAgeMs?: number) {
     if (refreshing) return;
     refreshing = true;
     try {
-      await refreshHome();
+      await refreshHome({ maxAgeMs });
     } finally {
       refreshing = false;
     }
@@ -24,7 +25,7 @@
   // Fresh data whenever Home is shown, and every 30 s while it stays on screen (the page in front).
   onMount(() => {
     homeOnScreen(true);
-    void refresh();
+    void refresh(HOME_FRESH_MS);
     const poll = setInterval(() => {
       if (!document.hidden) void refreshHome({ trades: false });
     }, 30_000);
@@ -48,13 +49,21 @@
     }
   }
 
+  /** Trades that didn't go through: no amount was paid or got. */
+  const GONE = new Set(['failed', 'cancelled', 'dropped']);
+  /** What it cost (buy) or brought (sell), the miner fee counted as the quote does. */
+  const withMinerFee = (t: { side: string; sats: number | null }) =>
+    t.side === 'buy' ? (t.sats ?? 0) + MINER_FEE_SATS : Math.max(0, (t.sats ?? 0) - MINER_FEE_SATS);
+
   const TRADE_WORDS: Record<string, string> = {
     sending: 'Sending',
     pending: 'Pending',
     done: 'Done',
     failed: 'Failed',
-    held: 'Waiting for you',
+    held: 'Waiting for your OK',
     refused: 'Refused',
+    cancelled: 'Cancelled',
+    dropped: "Didn't go through",
   };
 </script>
 
@@ -66,17 +75,21 @@
   <div class="card stack-sm" data-testid="balance">
     <h3>Balance</h3>
     {#if $balance}
+      <!-- What the wallet holds once what's moving settles; under it, only what isn't zero. -->
       <p class="big num">{fmtSats($balance.total)}</p>
-      <dl class="facts">
-        <dt>Available</dt>
-        <dd>{fmtSats($balance.available)}</dd>
-        {#if $balance.pendingTrades > 0 || $balance.inPendingTrades > 0}
-          <dt>In pending trades</dt>
-          <dd>{fmtSats($balance.inPendingTrades)} ({$balance.pendingTrades})</dd>
-        {/if}
-      </dl>
-      {#if $balance.pendingTrades > 0}
-        <p class="small muted">A pending trade ties up a whole coin until its block; it comes back then.</p>
+      {#if $balance.inPendingTrades > 0 || $balance.withdrawing > 0}
+        <dl class="facts">
+          {#if $balance.inPendingTrades > 0}
+            <dt>Ready to use now</dt>
+            <dd>{fmtSats($balance.available)}</dd>
+            <dt>Held by {$balance.pendingTrades} waiting trade{$balance.pendingTrades === 1 ? '' : 's'}</dt>
+            <dd>{fmtSats($balance.inPendingTrades)}</dd>
+          {/if}
+          {#if $balance.withdrawing > 0}
+            <dt>On its way to eCash</dt>
+            <dd>{fmtSats($balance.withdrawing)} <span class="muted">(pays out in days)</span></dd>
+          {/if}
+        </dl>
       {/if}
     {:else}
       <p class="muted">—</p>
@@ -91,9 +104,7 @@
         <dt>Left today for trades</dt>
         <dd>{fmtNum($status.leftSats)} of {fmtSats($status.limitSats)}</dd>
       </dl>
-      <p class="small muted">
-        Trades over what's left wait for you to confirm them on your computer. A buy counts at its most; a sell at its number of shares (a sat each).
-      </p>
+      <p class="small muted">{limitSentence($status.limitSats)}</p>
     {:else}
       <p class="muted">—</p>
     {/if}
@@ -144,7 +155,8 @@
             </div>
             <div class="muted">{t.title}</div>
             <div class="muted num">
-              {fmtTime(t.time)}{t.sats !== null ? ` · about ${fmtSats(t.sats)}` : ''} · {t.side === 'buy' ? 'at most' : 'at least'}
+              {fmtTime(t.time)}{t.sats !== null && !GONE.has(t.status) ? ` · about ${fmtSats(withMinerFee(t))}` : ''} ·
+              {t.side === 'buy' ? 'at most' : 'at least'}
               {fmtSats(t.limit)}
             </div>
           </li>
@@ -153,7 +165,7 @@
     </div>
   {/if}
 
-  <button class="full" on:click={refresh} disabled={refreshing}>
+  <button class="full" on:click={() => refresh()} disabled={refreshing}>
     {#if refreshing}<span class="spinner"></span>{:else}Refresh{/if}
   </button>
   <HomeScreenHint paired />

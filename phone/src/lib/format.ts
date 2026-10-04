@@ -44,13 +44,36 @@ export function fmtHeight(n: number): string {
   return group(n);
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "5 Oct 2026": the same everywhere (10/5/2026 reads as 10 May in most places). */
+export function fmtDate(d: Date): string {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** Today: "14:05" (the phone's own clock style); another day: "5 Oct 2026". */
 export function fmtTime(unix: number): string {
   if (!unix) return '';
   const d = new Date(unix * 1000);
   const now = new Date();
   return d.toDateString() === now.toDateString()
     ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    : fmtDate(d);
+}
+
+/** How the phone's daily limit works, in one place for every screen that explains it. */
+export function limitSentence(limitSats: number): string {
+  return `Up to ${fmtSats(limitSats)} of trades a day go through by themselves; bigger ones wait for your OK on the computer. A buy counts at its most; a sell at its number of shares.`;
+}
+
+/** The miner fee every trade pays from the wallet's coin, on top of a buy's price and out of a sell's proceeds. */
+export const MINER_FEE_SATS = 1000;
+
+/** What a share of a settled market's outcome paid: "1 sat", "0.5 sat", or "nothing". */
+export function fmtPaid(p: number): string {
+  if (!Number.isFinite(p) || p <= 0) return 'nothing';
+  const r = Math.round(p * 1000) / 1000;
+  return `${r} sat`;
 }
 
 /** "a1b2c3…d4e5f6" for long ids. */

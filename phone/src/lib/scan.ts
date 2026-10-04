@@ -7,7 +7,7 @@ import { pairValueFrom } from './fragment';
 /** What the scanned text means: a pairing value to read, or why it isn't one. */
 export type Scanned = { value: string } | { wrong: string };
 
-const NOT_OURS = "That QR code isn't a pairing code. Scan the one the Truthcoin App shows under Settings › Phone.";
+const NOT_OURS = "That QR code isn't a pairing code. Scan the one the Truthcoin App shows in its Phone tab.";
 
 export function scannedPair(text: string): Scanned {
   const value = pairValueFrom(text);

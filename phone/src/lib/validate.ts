@@ -4,9 +4,12 @@
 import { MAX_RELAYS, relayList, validRelay } from './relays';
 import { cleanText } from './text';
 
+/** What to do when the page and the desktop don't speak the same version. */
+export const UPDATE_THE_APP = 'update the app (Settings › About › Check for a newer version)';
+
 export class BadAnswerError extends Error {
   constructor(readonly what: string) {
-    super(`Your computer sent an answer this page doesn't understand (${what}).`);
+    super(`This page and your Truthcoin App don't speak the same version: ${UPDATE_THE_APP}. (It sent a ${what} this page can't read.)`);
   }
 }
 
@@ -114,6 +117,8 @@ export interface MarketSummary {
   outcomes: number;
   volume: number;
   created: number;
+  /** The outcome with the highest chance, while trading (null otherwise, or from a desktop that doesn't say). */
+  leading: { label: string; price: number } | null;
 }
 
 export interface MarketsPage {
@@ -135,9 +140,16 @@ export function marketsPage(v: unknown): MarketsPage {
       outcomes: int(x.outcomes, 'outcome count', 4096),
       volume: num(x.volume, 'volume'),
       created: int(x.created, 'created at', 1e9),
+      leading: leadingOf(x.leading),
     };
   });
   return { markets, page, pages };
+}
+
+function leadingOf(v: unknown): MarketSummary['leading'] {
+  if (v === null || v === undefined) return null;
+  const l = obj(v, 'leading outcome');
+  return { label: str(l.label, 'leading outcome', 120), price: price(l.price, 'leading chance') };
 }
 
 export interface Outcome {
@@ -245,10 +257,13 @@ export function positions(v: unknown): Positions {
 }
 
 export interface Balance {
+  /** What the wallet holds once what's moving settles (withdrawals left out). */
   total: number;
   available: number;
   inPendingTrades: number;
   pendingTrades: number;
+  /** On its way to eCash (withdrawals): pays out in days. 0 from a desktop that doesn't say. */
+  withdrawing: number;
 }
 
 export function balance(v: unknown): Balance {
@@ -258,6 +273,7 @@ export function balance(v: unknown): Balance {
     available: int(o.available, 'available'),
     inPendingTrades: int(o.in_pending_trades, 'in pending trades'),
     pendingTrades: int(o.pending_trades, 'pending trades', 1e6),
+    withdrawing: o.withdrawing === null || o.withdrawing === undefined ? 0 : int(o.withdrawing, 'withdrawing'),
   };
 }
 
