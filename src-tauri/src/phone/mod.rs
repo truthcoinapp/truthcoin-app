@@ -107,6 +107,8 @@ struct Claim {
     /// The commitment nonce sent to this phone; the code is over it.
     nonce: [u8; 16],
     code: String,
+    /// When the nonce was last sent, and how many times: a resend at most every 2 s, 10 in all (rereview R4).
+    sent: (Instant, u32),
 }
 
 struct Pairing {
@@ -455,8 +457,15 @@ impl Phone {
                 .and_then(|v| v["p"].as_str().and_then(|k| parse_pub(k).ok()))
                 .map(|k| pub_b64u(&k));
             if other.as_deref() == Some(c.p.as_str()) && ev.pubkey == c.np {
+                if c.sent.0.elapsed() < Duration::from_secs(2) || c.sent.1 >= 10 {
+                    return None;
+                }
                 let reply = json!({"re": c.id, "nonce": b64u(&c.nonce)});
-                return Some((parse_pub(&c.p).ok()?, c.np.clone(), reply));
+                let target = (parse_pub(&c.p).ok()?, c.np.clone());
+                if let Some(c) = p.claim.as_mut() {
+                    c.sent = (Instant::now(), c.sent.1 + 1);
+                }
+                return Some((target.0, target.1, reply));
             }
             if other.is_some() {
                 p.contested = true;
@@ -479,6 +488,7 @@ impl Phone {
             np: ev.pubkey.clone(),
             nonce,
             code,
+            sent: (Instant::now(), 1),
         });
         Some((p_pub, ev.pubkey.clone(), reply))
     }
@@ -526,10 +536,16 @@ impl Phone {
         }
         let m = req["m"].as_str().unwrap_or("");
         if m == "unpair" {
-            // The phone forgot this computer: answer, then forget the phone.
+            // The phone forgot this computer: answer, then forget the phone. The relays stay up a few seconds more, so
+            // the answer goes out even when this was the last phone (rereview R3).
             self.send(&p_pub, &dev.np, &json!({"re": id, "ok": {"unpaired": true}}));
-            let _ = self.revoke(&dev.np);
+            let _ = self.forget_device(&dev.np);
             crate::activity::note(&self.node.dir, &format!("phone {} unpaired itself", dev.name));
+            let me = self.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                me.stop_if_idle();
+            });
             return;
         }
         let reply = if m == "trade" {
@@ -876,19 +892,22 @@ impl Phone {
     }
 
     pub fn revoke(&self, np: &str) -> Result<(), String> {
+        self.forget_device(np)?;
+        self.stop_if_idle();
+        Ok(())
+    }
+
+    /// Forget a phone and its held trades (the relays stay as they are).
+    fn forget_device(&self, np: &str) -> Result<(), String> {
         {
             let mut d = self.devices.lock().unwrap();
             d.retain(|x| x.np != np);
             self.save_devices(&d)?;
             *self.gate.keys.write().unwrap() = d.iter().map(|x| x.np.clone()).collect();
         }
-        {
-            let mut h = self.held.lock().unwrap();
-            h.retain(|x| x.np != np);
-            self.save_held(&h)?;
-        }
-        self.stop_if_idle();
-        Ok(())
+        let mut h = self.held.lock().unwrap();
+        h.retain(|x| x.np != np);
+        self.save_held(&h)
     }
 
     #[cfg(test)]

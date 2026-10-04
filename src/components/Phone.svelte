@@ -120,7 +120,8 @@
     <p class="small muted"><span class="spin"></span> Waiting for the phone… (the code works for 5 minutes, once)</p>
     <button on:click={endPair}>Cancel</button>
   {:else if pair.state === "claimed"}
-    <p><strong>{pair.name}</strong> asks to pair. Allow it only if the phone shows this same code:</p>
+    <p><strong>{pair.name}</strong> asks to pair. Allow it only if the phone shows this same code. If the phone shows no
+      code, or a different one, refuse.</p>
     <div class="code">{pair.code}</div>
     <div class="actions">
       <button class="primary" on:click={() => answer(true)}>Same code: allow</button>
@@ -130,8 +131,8 @@
     <div class="notice ok">Paired. Your phone should now say so; if it doesn't, remove it below and pair again.</div>
     <button on:click={endPair}>Done</button>
   {:else if pair.state === "contested"}
-    <div class="notice error">Two phones tried to pair with this code, so someone else has seen it. Refuse, and start
-      again where nobody can see your screen.</div>
+    <div class="notice error">Two phones tried to pair with this code: someone else has seen it, or your phone cancelled
+      and scanned it again. Refuse, and start again (where nobody can see your screen).</div>
     <button class="danger" on:click={() => answer(false)}>Refuse</button>
   {:else}
     <div class="notice warn">{pair.state === "refused" ? "Refused." : "The code expired."}</div>
