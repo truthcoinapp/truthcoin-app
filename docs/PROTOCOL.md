@@ -122,8 +122,8 @@ ask again **with the same id**, which is always safe.
 for `status`, and asks again (same ids) about trades still held or unanswered.
 
 The desktop runs at most 60 new requests a minute per phone, and answers at most 30 repeats; over that, a new
-request gets (a few times a minute at most) `{"re":"<id>", "err":"Your computer is busy: ask again in a few seconds"}`
-and isn't run.
+request gets (a few times a minute at most) `{"re":"<id>", "err":"Your computer is busy: ask again in a few seconds",
+"busy":true}` and isn't run: asking again under the same id is safe.
 
 ## Methods
 
@@ -134,7 +134,7 @@ from 0. Fields the node may not give can be `null` or missing: `status.height` (
 | Method | Args | Result |
 |---|---|---|
 | `status` | — | `{"app":"0.1.0", "node":"running"\|"starting"\|"stopped"\|"failed", "height":n, "synced":bool, "network":"betanet", "name":"<this phone>", "limit_sats":n, "left_sats":n, "relays":[…]}` |
-| `markets` | `{"page":n}` | `{"markets":[{"id","title","state","outcomes":n,"volume":n,"created":height}], "page":n, "pages":n}`: trading markets first, newest first |
+| `markets` | `{"page":n}` | `{"markets":[{"id","title","state","outcomes":n,"volume":n,"created":height,"leading":{"label","price"}\|null}], "page":n, "pages":n}`: trading markets first, newest first; `leading` is the outcome with the highest chance (null when not trading) |
 | `market` | `{"id"}` | `{"id","title","description","state","fee_rate","volume","outcomes":[{"i","label","price","volume"}], "resolution":{"summary","winners":[i]}\|null, "holdings":[{"outcome","shares","value"}]}` |
 | `positions` | — | `{"positions":[{"market_id","title","state","outcome","label","shares","price","value","paid"}], "total_value":n}` (`paid` may be null) |
 | `balance` | — | `{"total","available","in_pending_trades","pending_trades"}` |

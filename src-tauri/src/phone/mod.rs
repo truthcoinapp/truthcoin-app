@@ -529,7 +529,7 @@ impl Phone {
         // Over the rate, a new request isn't run: the phone is told (a few times a minute at most) and asks again.
         if !self.within_rate(&dev.np, MAX_PER_MINUTE) {
             if self.within_rate(&format!("{}:busy", dev.np), MAX_BUSY_PER_MINUTE) {
-                let r = json!({"re": id, "err": "Your computer is busy: ask again in a few seconds"});
+                let r = json!({"re": id, "err": "Your computer is busy: ask again in a few seconds", "busy": true});
                 self.send(&p_pub, &dev.np, &r);
             }
             return;
@@ -613,13 +613,22 @@ impl Phone {
                 l.sort_by(|a, b| (b.state == "trading").cmp(&(a.state == "trading")).then(b.created_at_height.cmp(&a.created_at_height)));
                 let pages = l.len().div_ceil(MARKETS_PER_PAGE).max(1);
                 let page = (a["page"].as_u64().unwrap_or(0) as usize).min(pages - 1);
-                let items: Vec<Value> = l
-                    .iter()
-                    .skip(page * MARKETS_PER_PAGE)
-                    .take(MARKETS_PER_PAGE)
-                    .map(|m| json!({"id": m.market_id, "title": cut(&m.title, 140), "state": m.state, "outcomes": m.outcome_count,
-                                    "volume": m.volume_sats, "created": m.created_at_height}))
-                    .collect();
+                let mut items: Vec<Value> = vec![];
+                for m in l.iter().skip(page * MARKETS_PER_PAGE).take(MARKETS_PER_PAGE) {
+                    // The leading outcome and its chance (UX review M4): one node call per market on the page.
+                    let leading = match markets::get(&rpc, &m.market_id).await {
+                        Ok(v) if m.state == "trading" => v["outcomes"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|o| markets::outcome(&v, o["outcome_index"].as_u64()? as u32))
+                            .max_by(|a, b| a.1.total_cmp(&b.1))
+                            .map(|(label, price)| json!({"label": cut(&label, 80), "price": price})),
+                        _ => None,
+                    };
+                    items.push(json!({"id": m.market_id, "title": cut(&m.title, 140), "state": m.state, "outcomes": m.outcome_count,
+                                      "volume": m.volume_sats, "created": m.created_at_height, "leading": leading}));
+                }
                 Ok(json!({"markets": items, "page": page, "pages": pages}))
             }
             "market" => {
