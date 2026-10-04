@@ -328,6 +328,11 @@
               Goes through with the next Truthcoin block (about 10–17 minutes)
             {/if}
           </div>
+          {#if t.status === "pending" && cancelAsk !== t.id}
+            <button class="small" style="margin-top:6px" on:click={() => cancel(t)}>Cancel and get the coin back</button>
+          {:else if t.status === "sending" && !t.txid && now() - t.time > 120}
+            <button class="link small" on:click={() => api.clearTrade(t.id).then(load).catch((e) => (loadErr = errText(e)))}>It didn't go through</button>
+          {/if}
           {#if cancelAsk === t.id}
             <div class="notice warn small" style="margin-top:6px">
               Take it out of this node's queue and get its coin back? If other nodes already have it and the price comes
@@ -338,11 +343,6 @@
         </div>
         <div class="nowrap" style="text-align:right">
           <div class="small">{t.side === "buy" ? "at most" : "at least"} {sats(t.limit_sats)}</div>
-          {#if t.status === "pending" && cancelAsk !== t.id}
-            <button class="small" on:click={() => cancel(t)}>Cancel and get the coin back</button>
-          {:else if t.status === "sending" && !t.txid && now() - t.time > 120}
-            <button class="link small" on:click={() => api.clearTrade(t.id).then(load).catch((e) => (loadErr = errText(e)))}>It didn't go through</button>
-          {/if}
         </div>
       </div>
     {/each}
