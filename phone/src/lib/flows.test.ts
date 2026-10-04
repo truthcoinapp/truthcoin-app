@@ -36,6 +36,7 @@ async function setup(kv: Kv = memoryKv(), nsec = newNostrSecret()) {
   const link = new PhoneLink({ pPriv, pPub, dPub, nsec, npub: nostrPub(nsec), nd: nostrPub(ndSec) }, [RELAY], {
     ws: f.ws,
     onLateReply: (r) => void flowsRef?.late(r),
+    busyWaitMs: 30,
   });
   link.start();
   const relay = f.last(RELAY);
@@ -140,6 +141,24 @@ describe('trade flows', () => {
     await waitFor(() => flows.get(h.id)!.state.k === 'refused');
     expect(flows.get(h.id)!.state).toEqual({ k: 'refused', msg: records });
     link.stop();
+  });
+
+  it('keep a trade still busy after its retries open ("Not confirmed"), and settle it on a late answer', async () => {
+    const { flows, reply, kv, npub, relay } = await setup();
+    const f = await flows.start(args, { title: 'T', label: 'Yes' });
+    const busy = { re: f.id, err: 'Your computer is busy: ask again in a few seconds', busy: true };
+    for (let i = 1; i <= 3; i++) {
+      await waitFor(() => relay.of('EVENT').length >= i); // the first send, then each ask-again
+      await reply(busy);
+    }
+    await waitFor(() => flows.get(f.id)!.state.k === 'unconfirmed');
+    expect(flows.get(f.id)!.state).toEqual({ k: 'unconfirmed', why: 'Your computer was busy and gave no answer.' });
+    expect((await loadPending(kv, npub)).map((p) => p.req.id)).toEqual([f.id]); // still kept, same id
+    // Another busy answer changes nothing; then a copy of the request that did get through is answered.
+    await reply(busy);
+    await reply({ re: f.id, ok: { status: 'pending', txid: 'ab'.repeat(32) } });
+    await waitFor(() => flows.get(f.id)!.state.k === 'pending');
+    expect(await loadPending(kv, npub)).toEqual([]);
   });
 
   it('write nothing once stopped (a newer pairing may own the storage)', async () => {

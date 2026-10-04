@@ -4,7 +4,17 @@
 // never trades twice. Never "Not sent" when it may have gone: "Not confirmed: check Positions before trying again".
 import { writable, type Readable } from 'svelte/store';
 import type { Tracker } from './api';
-import { LinkStoppedError, NoAnswerError, ReplyError, UnsureError, type PhoneLink, type Reply, type Request } from './link';
+import {
+  BusyError,
+  isBusy,
+  LinkStoppedError,
+  NoAnswerError,
+  ReplyError,
+  UnsureError,
+  type PhoneLink,
+  type Reply,
+  type Request,
+} from './link';
 import { loadPending, savePending, type Kv, type PendingTrade } from './store';
 import { BadAnswerError, tradeDone, type Side } from './validate';
 
@@ -147,6 +157,7 @@ export class TradeFlows {
   late(r: Reply): boolean {
     const f = this.get(r.re);
     if (!f || r.k === 'nonce') return false;
+    if (isBusy(r)) return true; // busy is never an answer: the trade stays as it is
     if (r.k === 'held') this.set(f, { k: 'held', text: r.text });
     else if (r.k === 'unsure') this.set(f, { k: 'unconfirmed', why: r.text });
     else if (r.k === 'err') this.set(f, { k: 'refused', msg: r.err });
@@ -179,6 +190,8 @@ export class TradeFlows {
       t?.fail(e);
       if (e instanceof ReplyError) this.set(f, { k: 'refused', msg: e.message });
       else if (e instanceof UnsureError) this.set(f, { k: 'unconfirmed', why: e.message });
+      // Busy to the end: not run, not recorded, but a copy of the request may still be on its way. Not "Not done".
+      else if (e instanceof BusyError) this.set(f, { k: 'unconfirmed', why: 'Your computer was busy and gave no answer.' });
       else if (e instanceof NoAnswerError)
         this.set(f, {
           k: 'unconfirmed',

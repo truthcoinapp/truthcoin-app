@@ -94,7 +94,8 @@ Beyond the protocol:
 - **Busy:** the computer's busy answer (`"busy": true` beside its `err`; from an older computer, an `err` starting
   "Your computer is busy") isn't kept for the request id, so
   the phone says "Your computer is busy; asking again in a moment" and asks again under the same id after 5 s, twice
-  at most.
+  at most. Busy is never a final answer: a trade still busy after that is "Not confirmed" (kept, Ask again under the
+  same id), and a later answer for its id still settles it.
 - **Polling:** Home asks for status, balance and positions when shown (reusing what came in the last 10 s) and every
   30 s while shown (never from another screen); Settings asks for the status when it opens; and for recent trades too when the block number changes while a trade is on its way. The page also asks
   again about unanswered trades when it comes back to the front, polls held trades every 60 seconds, and follows at

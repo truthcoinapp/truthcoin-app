@@ -251,8 +251,8 @@ describe('the phone link', () => {
     expect(await p).toBe(7);
   });
 
-  it('gives up with BusyError after two busy answers asked again', async () => {
-    const { link, sentRequests, reply } = await setup({ busyWaitMs: 50 });
+  it('gives up with BusyError after two busy answers asked again, and leaves the id open', async () => {
+    const { link, sentRequests, reply, late } = await setup({ busyWaitMs: 50 });
     const p = link.request('status');
     p.catch(() => undefined);
     const [{ req }] = await sentRequests();
@@ -261,6 +261,10 @@ describe('the phone link', () => {
       await reply({ re: req.id, err: 'Your computer is busy: ask again in a few seconds' });
     }
     await expect(p).rejects.toThrow(BusyError);
+    // Busy was never an answer: a later one under the id is passed on, not dropped as a repeat.
+    await reply({ re: req.id, ok: 5 });
+    await waitFor(() => late.length > 0);
+    expect(late[0]).toEqual({ re: req.id, k: 'ok', ok: 5 });
   });
 
   it('asks once more by itself when a relay took a read but no answer came', async () => {

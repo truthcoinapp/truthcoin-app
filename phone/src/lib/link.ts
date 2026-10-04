@@ -55,8 +55,17 @@ export class ReplyError extends Error {}
  */
 export class UnsureError extends Error {}
 
-/** The desktop was over its request limit and said so, again after the phone's own retries. Nothing was run. */
-export class BusyError extends ReplyError {}
+/**
+ * The desktop was over its request limit and said so, again after the phone's own retries. It didn't run the request
+ * and didn't record its id, so the request isn't settled: a copy still on its way could run later. Not final: the id
+ * stays open for a later answer, and asking again (same id) is safe.
+ */
+export class BusyError extends Error {}
+
+/** A busy answer (`"busy": true`, or from an older desktop, these words): never a final answer. */
+export function isBusy(r: Reply): boolean {
+  return r.k === 'err' && (r.busy === true || BUSY.test(r.err));
+}
 
 /** The desktop's answer when it's over its request limit (`"busy": true`, or from a desktop before that flag, these
  * words): not stored for the id, so asking again is fine. */
@@ -309,15 +318,15 @@ export class PhoneLink {
     if (r.k === 'nonce') return; // pairing's, not a request's
     if (this.done.has(r.re)) return;
     const w = this.waiting.get(r.re);
-    // `held` and `unsure` leave the id open: a final answer may still follow.
-    const final = r.k === 'ok' || r.k === 'err';
+    // `held`, `unsure` and busy leave the id open: a final answer may still follow.
+    const final = r.k === 'ok' || (r.k === 'err' && !isBusy(r));
     this.lastHeard = Date.now();
     if (!w) {
       if (final) this.remember(r.re);
       this.opts.onLateReply?.(r);
       return;
     }
-    if (r.k === 'err' && (r.busy || BUSY.test(r.err))) {
+    if (isBusy(r)) {
       // Over the desktop's limit: nothing ran, and the answer isn't kept for the id. Ask again (same id) in a moment.
       if (w.busy < BUSY_RETRIES) {
         w.busy++;
@@ -332,8 +341,7 @@ export class PhoneLink {
         for (const l of w.listeners) l.o.onBusy?.();
         return;
       }
-      this.remember(r.re);
-      this.finish(w, new BusyError(r.err));
+      this.finish(w, new BusyError(r.k === 'err' ? r.err : '')); // not remembered: a later answer still counts
       return;
     }
     if (r.k === 'unsure') {
