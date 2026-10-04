@@ -157,7 +157,8 @@
       <p><span class="spin"></span> Starting the Truthcoin node…</p>
     {:else}
       {#if node.run.state === "failed"}
-        <pre class="log">{node.run.message}</pre>
+        <div class="notice error">{node.run.message.split("\n")[0]}</div>
+        {#if node.run.message.includes("\n")}<details><summary>The node's log</summary><pre class="log">{node.run.message}</pre></details>{/if}
       {/if}
       <div class="actions"><button class="primary" on:click={start}>Start</button></div>
     {/if}

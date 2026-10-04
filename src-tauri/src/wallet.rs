@@ -40,6 +40,9 @@ pub struct WalletStatus {
 pub async fn wallet_status(st: St<'_>) -> Result<WalletStatus, String> {
     let rpc = st.node.rpc_or_err()?;
     let has_seed = has_seed(&rpc).await?;
+    if has_seed {
+        mark_ready(&st.dir);
+    }
     let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
     let _ = markets::refresh(&rpc, &st.trades).await;
     let tied = markets::tied_up(&rpc, &st.trades).await;
@@ -90,6 +93,21 @@ pub async fn wallet_split(st: St<'_>, parts: u32) -> Result<Value, String> {
     let r = split(&st.node.rpc_or_err()?, parts).await?;
     crate::activity::note(&st.dir, &format!("split the wallet into {parts} coins"));
     Ok(r)
+}
+
+/// The app's folder remembers that its wallet was set up (so Setup isn't shown again while the node is down). Kept in
+/// the data folder, not the window's storage: a new folder starts at Setup.
+const READY: &str = "wallet-ready";
+
+pub fn mark_ready(dir: &std::path::Path) {
+    let p = dir.join(READY);
+    if !p.exists() {
+        let _ = crate::files::write_private(&p, b"1\n");
+    }
+}
+
+pub fn is_ready(dir: &std::path::Path) -> bool {
+    dir.join(READY).exists()
 }
 
 #[derive(Serialize)]

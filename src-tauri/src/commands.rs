@@ -13,6 +13,8 @@ pub struct AppInfo {
     pub version: &'static str,
     /// A release build: eCash beta only.
     pub beta_only: bool,
+    /// This data folder's wallet has been set up.
+    pub wallet_ready: bool,
     pub node_version: &'static str,
     pub supported: bool,
     pub dir: String,
@@ -23,6 +25,7 @@ pub fn app_info(st: St<'_>) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         beta_only: crate::settings::BETA_ONLY,
+        wallet_ready: crate::wallet::is_ready(&st.dir),
         node_version: pins::NODE_VERSION,
         supported: pins::this_computer().is_some(),
         dir: st.dir.display().to_string(),

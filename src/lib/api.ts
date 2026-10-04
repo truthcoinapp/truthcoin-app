@@ -15,6 +15,8 @@ export interface AppInfo {
   dir: string;
   /** A release build: eCash beta only. */
   beta_only: boolean;
+  /** This data folder's wallet has been set up. */
+  wallet_ready: boolean;
 }
 
 export interface NodeStatus {

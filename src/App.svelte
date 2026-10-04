@@ -16,23 +16,12 @@
   let heldCount = 0;
   let marketToOpen: string | null = null;
 
-  function readFlag() {
-    try {
-      walletReady = localStorage.getItem("walletReady") === "1";
-    } catch {}
-  }
-
   async function poll() {
     try {
       node = await api.nodeStatus();
       if (node.run.state === "running") {
         wallet = await api.wallet().catch(() => wallet);
-        if (wallet?.has_seed && !walletReady) {
-          walletReady = true;
-          try {
-            localStorage.setItem("walletReady", "1");
-          } catch {}
-        }
+        if (wallet?.has_seed) walletReady = true;
       }
       const p = await api.phoneInfo().catch(() => null);
       heldCount = p?.held.length ?? 0;
@@ -40,8 +29,8 @@
   }
 
   onMount(async () => {
-    readFlag();
     info = await api.appInfo();
+    walletReady = info.wallet_ready;
     await poll();
     timer = setInterval(poll, 4000);
   });
@@ -84,7 +73,8 @@
     {#if !running}
       <div class="notice warn">
         {#if node.run.state === "failed"}
-          The Truthcoin node stopped. <button class="link" on:click={() => (tab = "settings")}>See why</button>
+          The Truthcoin node isn't running: {node.run.message.split("\n")[0]}
+          <button class="link" on:click={() => (tab = "settings")}>More</button>
         {:else if node.run.state === "starting"}
           The Truthcoin node is starting…
         {:else}
