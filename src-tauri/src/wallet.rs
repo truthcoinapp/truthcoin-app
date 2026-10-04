@@ -411,7 +411,12 @@ pub async fn deposit(st: St<'_>, amount_sats: u64, fee_sats: u64) -> Result<Stri
 /// A new address of BitWindow's eCash wallet (the enforcer's), to withdraw to.
 #[tauri::command]
 pub async fn ecash_address(st: St<'_>) -> Result<String, String> {
-    enforcer::new_address(&st.node.settings().enforcer).await
+    let e = st.node.settings().enforcer;
+    // Over a network, the enforcer's unencrypted answer could be someone else's address (review U1).
+    if !crate::commands::is_loopback(&e) {
+        return Err("Only with an enforcer on this computer: copy an address from BitWindow instead".into());
+    }
+    enforcer::new_address(&e).await
 }
 
 /// Withdraw to an eCash address. It joins the next withdrawal bundle, which eCash miners vote on over many blocks.

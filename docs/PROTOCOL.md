@@ -121,7 +121,9 @@ ask again **with the same id**, which is always safe.
 **When the phone is closed:** ephemeral events only reach open subscriptions. So the phone pulls: on opening it asks
 for `status`, and asks again (same ids) about trades still held or unanswered.
 
-The desktop answers at most 30 requests a minute per phone, and drops the rest.
+The desktop runs at most 60 new requests a minute per phone, and answers at most 30 repeats; over that, a new
+request gets (a few times a minute at most) `{"re":"<id>", "err":"Your computer is busy: ask again in a few seconds"}`
+and isn't run.
 
 ## Methods
 

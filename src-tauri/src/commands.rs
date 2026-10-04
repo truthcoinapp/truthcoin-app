@@ -105,7 +105,7 @@ pub async fn node_status(st: St<'_>) -> Result<NodeStatus, String> {
     })
 }
 
-fn is_loopback(addr: &str) -> bool {
+pub fn is_loopback(addr: &str) -> bool {
     let host = addr.rsplit_once(':').map(|x| x.0).unwrap_or(addr).trim_matches(|c| c == '[' || c == ']');
     host == "localhost" || host.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
@@ -316,8 +316,11 @@ pub async fn settled(st: St<'_>) -> Result<Vec<Settled>, String> {
                 .and_then(|w| w["price"].as_f64())
                 .unwrap_or(0.0)
         };
-        let shares: u64 = held.values().map(|n| (*n).max(0) as u64).sum();
-        let paid = held.iter().map(|(i, n)| ((*n).max(0) as f64 * price(*i)).floor() as u64).sum();
+        let shares: u64 = held.values().map(|n| (*n).max(0) as u64).fold(0u64, |a, b| a.saturating_add(b));
+        let paid = held
+            .iter()
+            .map(|(i, n)| ((*n).max(0) as f64 * price(*i)).floor() as u64)
+            .fold(0u64, |a, b| a.saturating_add(b));
         out.push(Settled {
             market_id: id,
             title: m["title"].as_str().unwrap_or("").into(),

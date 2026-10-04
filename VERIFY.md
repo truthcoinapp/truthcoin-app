@@ -60,7 +60,10 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
   `src-tauri/src/phone/crypto.rs`; Nostr events: `nostr.rs`; relay connections: `relays.rs`; what a phone may do:
   `mod.rs`.
 - **Your trades:** `<app data>/trades.json`, the app's own record (each trade is written there before it goes to the
-  node). `<app data>/activity.log` notes what the app did, without words, keys or full addresses.
+  node). `<app data>/deposits.json` lists deposits from eCash sent in the last two hours (amount, time, eCash txid),
+  so Home can show them arriving. `<app data>/activity.log` notes what the app did, without words, keys or full
+  addresses. `<app data>/wallet-ready` marks a folder whose wallet was set up. Any of these that can't be read is set
+  aside as `*.bad-*`, never written over, and phones can't trade until you say you've looked.
 
 **Every network contact:**
 - The node's RPC and the enforcer's gRPC, on this computer (or where Settings › Advanced points).
@@ -95,8 +98,9 @@ to an hour; a phone can have at most 3 waiting for you and 3 waiting for their b
 quote, the miner fee and half the margin, and at most twice the suggested cap. A sell is refused if the price
 movement alone would lose over 20% of its shares' value, or if its minimum is more than one margin below the
 suggested one. Every request carries an id: a repeat gets the
-stored answer and never runs twice. Requests more than 5 minutes off the desktop's clock are refused, and a phone gets
-at most 30 answers a minute, repeats included. Messages that don't open with a paired phone's keys are dropped; events
+stored answer and never runs twice. Requests more than 5 minutes off the desktop's clock are refused. A phone may make 60
+new requests a minute and get 30 repeated answers; over that, a new request isn't run, and the phone is told (at most
+5 times a minute) to ask again. Messages that don't open with a paired phone's keys are dropped; events
 from keys that aren't paired aren't even checked unless a pairing code is live. If the app can't read its trade or
 phone records at start, it sets them aside and phones can't trade until someone looks.
 

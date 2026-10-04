@@ -38,10 +38,12 @@ pub const SKEW_SECS: u64 = 300;
 pub const ANSWER_SECS: u64 = 24 * 3600;
 /// New requests a phone may make in a minute, and repeats (asking again under a known id), counted apart: ordinary
 /// use (Home, a market, a quote, their resends) stays well under both (UX review B2).
-pub const MAX_PER_MINUTE: usize = 120;
-pub const MAX_REPEATS_PER_MINUTE: usize = 120;
+/// Together they bound what one phone can make the desktop publish (about 95 events a minute), so a misbehaving phone
+/// can't get the desktop's key rate-limited on the relays (review U2).
+pub const MAX_PER_MINUTE: usize = 60;
+pub const MAX_REPEATS_PER_MINUTE: usize = 30;
 /// "Busy" answers sent in a minute, at most: over-limit requests get one, so the phone can say so and ask again.
-const MAX_BUSY_PER_MINUTE: usize = 10;
+const MAX_BUSY_PER_MINUTE: usize = 5;
 const MARKETS_PER_PAGE: usize = 25;
 /// Trades a phone may have waiting for the desktop at once, and waiting for their block (review M2, L7).
 pub const MAX_HELD: usize = 3;
