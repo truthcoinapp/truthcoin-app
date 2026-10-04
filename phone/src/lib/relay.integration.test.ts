@@ -81,7 +81,7 @@ describe('through a relay that repeats and reorders everything', () => {
       const s = await api.status();
       expect(s).toMatchObject({ height: 42, synced: true, node: 'running', leftSats: 1000, relays: [url] });
 
-      const flows = new TradeFlows(link, memoryKv());
+      const flows = new TradeFlows(link, memoryKv(), pairing.npub);
       const seen: string[] = [];
       const unsub = flows.store.subscribe((l) => l[0] && seen.push(l[0].state.k));
       const f = await flows.start(
@@ -125,7 +125,7 @@ describe('through a relay that repeats and reorders everything', () => {
       const kv = memoryKv();
       desktop.o.silent = true; // the app on the computer is busy or closed
       const link1 = phoneLink(pairing);
-      const flows1 = new TradeFlows(link1, kv, undefined, 400);
+      const flows1 = new TradeFlows(link1, kv, pairing.npub, undefined, 400);
       const f = await flows1.start(
         { marketId: 'a1b2c3d4e5f6', outcome: 1, shares: 5, side: 'buy', limit: 10 },
         { title: 'T', label: 'Yes' },
@@ -135,7 +135,7 @@ describe('through a relay that repeats and reorders everything', () => {
 
       desktop.o.silent = false;
       const link2 = phoneLink(pairing); // the page opens again
-      const flows2 = new TradeFlows(link2, kv);
+      const flows2 = new TradeFlows(link2, kv, pairing.npub);
       await flows2.resume();
       expect(flows2.get(f.id)?.req).toEqual(f.req);
       await waitFor(() => flows2.get(f.id)!.state.k === 'pending', 10_000);
@@ -211,6 +211,34 @@ describe('through a relay that repeats and reorders everything', () => {
       expect(pairing.name).toBe('Lost answer');
       expect(pairing.limitSats).toBe(777); // from the status the probe got
       expect(desktop.requests.some((r) => r.m === 'status')).toBe(true);
+    } finally {
+      desktop.stop();
+    }
+  });
+
+  it("shows the code only once the computer's nonce N has come (and it includes N)", async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws, allowAfterMs: 1500 }).start();
+    desktop.withholdNonce = true;
+    try {
+      const link = await parsePairValue(desktop.pairValue(), true);
+      let code = '';
+      const p = await pairPhone(link, 'No nonce', { ws, onCode: (c) => (code = c), resendAt: [300, 900], probeEveryMs: 500 });
+      expect(p.npub).toMatch(/^[0-9a-f]{64}$/); // the yes still comes
+      expect(code).toBe(''); // but no code was ever shown: the confirm step asks without one
+    } finally {
+      desktop.stop();
+    }
+  });
+
+  it('asks the computer to forget this phone (unpair)', async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws }).start();
+    try {
+      const { pairing } = await pairWith(desktop);
+      const link = phoneLink(pairing);
+      expect(await new Api(link).unpair()).toBe(true);
+      expect(desktop.unpaired).toEqual([pairing.npub]);
+      expect(desktop.phones.size).toBe(0);
+      link.stop();
     } finally {
       desktop.stop();
     }

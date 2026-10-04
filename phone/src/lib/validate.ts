@@ -349,6 +349,13 @@ export function receive(v: unknown): Receive {
   };
 }
 
+/** The desktop's yes to `unpair`: it has forgotten this phone. */
+export function unpaired(v: unknown): true {
+  const o = obj(v, 'unpair');
+  if (o.unpaired !== true) throw new BadAnswerError('unpair');
+  return true;
+}
+
 export interface Paired {
   name: string;
   limitSats: number;

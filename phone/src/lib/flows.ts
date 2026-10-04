@@ -46,15 +46,24 @@ const OPEN = new Set(['sending', 'held', 'unconfirmed']);
 
 export class TradeFlows {
   private list: TradeFlow[] = [];
+  /** Set when the session ends: from then on nothing is written (a newer pairing may own the storage). */
+  private stopped = false;
   private readonly w = writable<TradeFlow[]>([]);
   readonly store: Readable<TradeFlow[]> = { subscribe: this.w.subscribe };
 
   constructor(
     private readonly link: PhoneLink,
     private readonly kv: Kv,
+    /** The pairing's Nostr key: its waiting trades are kept under it. */
+    private readonly npub: string,
     private readonly track?: Tracker,
     private readonly timeoutMs = 30_000,
   ) {}
+
+  /** The session ended: write nothing more. */
+  stop() {
+    this.stopped = true;
+  }
 
   all(): TradeFlow[] {
     return this.list;
@@ -66,7 +75,7 @@ export class TradeFlows {
 
   /** Trades kept from before (the page was closed or reloaded): ask about each again, under its own id. */
   async resume(): Promise<void> {
-    for (const p of await loadPending(this.kv)) {
+    for (const p of await loadPending(this.kv, this.npub)) {
       if (this.get(p.req.id)) continue;
       const a = p.req.a;
       this.list.push({
@@ -137,7 +146,7 @@ export class TradeFlows {
   /** A reply nobody was waiting for: maybe a late answer to one of these trades. */
   late(r: Reply): boolean {
     const f = this.get(r.re);
-    if (!f) return false;
+    if (!f || r.k === 'nonce') return false;
     if (r.k === 'held') this.set(f, { k: 'held', text: r.text });
     else if (r.k === 'unsure') this.set(f, { k: 'unconfirmed', why: r.text });
     else if (r.k === 'err') this.set(f, { k: 'refused', msg: r.err });
@@ -192,6 +201,7 @@ export class TradeFlows {
   }
 
   private async persist() {
+    if (this.stopped) return;
     const keep: PendingTrade[] = this.list
       .filter((f) => OPEN.has(f.state.k))
       .map((f) => ({
@@ -203,7 +213,7 @@ export class TradeFlows {
         at: f.at,
       }));
     try {
-      await savePending(this.kv, keep);
+      await savePending(this.kv, this.npub, keep);
     } catch {
       // Storage refused (private browsing): the trades still run; they just won't survive a reload.
     }

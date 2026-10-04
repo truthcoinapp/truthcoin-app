@@ -1,8 +1,10 @@
 <script lang="ts">
-  // Not paired, and pairing: scan (or paste) the computer's QR code, name this phone, then compare the codes both
-  // screens show while the computer asks "Allow this phone?".
+  // Not paired, and pairing: scan (or paste) the computer's QR code, name this phone, compare the codes both screens
+  // show while the computer asks "Allow this phone?", then confirm here that it did. Nothing is kept as a pairing
+  // until then. The attempt's keys are kept only while pairing is under way, and dropped on every way out but
+  // unloading the page; after a reload the page asks before carrying on.
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import { defaultDeviceName } from '../lib/format';
+  import { defaultDeviceName, keyFingerprint } from '../lib/format';
   import { pairValueFrom } from '../lib/fragment';
   import { ios, standalone } from '../lib/homescreen';
   import {
@@ -25,21 +27,36 @@
 
   export let pairValue: string | null;
   export let alreadyPaired = false;
-  /** A pairing under way before the page reloaded: carry on with its keys. */
+  /** The computer this phone is paired with now (its D), to tell a different one apart. */
+  export let currentD: string | null = null;
+  /** A pairing that was under way before the page reloaded: offered, never carried on without asking. */
   export let resume: PairAttempt | null = null;
 
   const dispatch = createEventDispatcher<{ paired: Pairing; cancel: null }>();
 
-  type State = 'start' | 'scanning' | 'reading' | 'form' | 'working' | 'waiting' | 'refused' | 'expired' | 'noanswer' | 'error';
-  let state: State = resume ? 'working' : pairValue ? 'reading' : 'start';
-  let link: PairLink | null = null;
+  type State =
+    | 'start'
+    | 'scanning'
+    | 'reading'
+    | 'resume'
+    | 'form'
+    | 'waiting'
+    | 'confirm'
+    | 'declined'
+    | 'refused'
+    | 'expired'
+    | 'noanswer'
+    | 'error';
+  let state: State = resume ? 'resume' : pairValue ? 'reading' : 'start';
+  let link: PairLink | null = resume?.link ?? null;
+  let kept: PairAttempt | null = resume;
   const inApp = standalone();
   const iphone = ios();
   // On an iPhone, the Home Screen app is where pairing belongs (its own storage); the browser can still pair if asked.
   let pairHere = !iphone || inApp;
-  let name = defaultDeviceName();
+  let name = resume?.name ?? defaultDeviceName();
   let message = '';
-  let code = '';
+  let code = resume?.code ?? '';
   let slow = false;
   let refusal = '';
   let pasted = '';
@@ -50,27 +67,25 @@
   let left = 0;
   let gone = false;
   let clock: ReturnType<typeof setInterval> | undefined;
+  /** The desktop said yes: kept only once the person confirms. */
+  let yes: Pairing | null = null;
 
   const nowS = () => Math.floor(Date.now() / 1000);
-
-  /** This code's kept attempt, if this phone already answered it (then it carries on, with the same name). */
-  async function keptFor(l: PairLink): Promise<PairAttempt | null> {
-    try {
-      return attemptFor(await loadAttempt(storage()), l, nowS());
-    } catch {
-      return null;
-    }
-  }
+  $: fingerprint = link ? keyFingerprint(link.d) : '';
+  $: otherComputer = !!(alreadyPaired && currentD && link && currentD !== link.d);
 
   async function readLink(value: string) {
     state = 'reading';
     try {
       const l = await parsePairValue(value);
       link = l;
-      const kept = await keptFor(l);
-      if (kept) {
-        name = kept.name;
-        void pair();
+      // This code's attempt from before a reload: ask before carrying on.
+      const k = await keptFor(l);
+      if (k) {
+        kept = k;
+        name = k.name;
+        code = k.code ?? '';
+        state = 'resume';
         return;
       }
       if (nowS() >= l.x) {
@@ -85,6 +100,19 @@
     }
   }
 
+  async function keptFor(l: PairLink): Promise<PairAttempt | null> {
+    try {
+      return attemptFor(await loadAttempt(storage()), l, nowS());
+    } catch {
+      return null;
+    }
+  }
+
+  function drop() {
+    kept = null;
+    void dropAttempt(storage()).catch(() => undefined);
+  }
+
   function tickClock() {
     clearInterval(clock);
     const upd = () => {
@@ -96,15 +124,13 @@
   }
 
   onMount(() => {
-    if (resume) {
-      link = resume.link;
-      name = resume.name;
-      void pair();
-    } else if (pairValue) void readLink(pairValue);
+    if (!resume && pairValue) void readLink(pairValue);
   });
+  // Leaving the pairing screen in any way ends the attempt (unloading the page doesn't run this).
   onDestroy(() => {
     gone = true;
     clearInterval(clock);
+    drop();
   });
 
   function scanned(e: CustomEvent<string>) {
@@ -118,12 +144,20 @@
     state = 'start';
   }
 
+  /** Back to the start: whatever was under way is over. */
   function again() {
+    drop();
     link = null;
     message = '';
     code = '';
     slow = false;
+    yes = null;
     state = 'start';
+  }
+
+  function stopResume() {
+    again();
+    if (alreadyPaired) dispatch('cancel', null);
   }
 
   function pastePair() {
@@ -151,26 +185,26 @@
   async function pair() {
     if (!link) return;
     const l = link;
-    state = 'working';
-    code = '';
+    state = 'waiting'; // the request goes out at once; the code shows once the computer's nonce comes
     slow = false;
     gone = false;
     try {
       const p = await pairPhone(l, cleanName(name), {
-        attempt: await keptFor(l),
-        keep: (a) => saveAttempt(storage(), a),
-        onCode: (c) => {
-          code = c;
-          state = 'waiting';
+        attempt: kept,
+        keep: (a) => {
+          kept = a;
+          return saveAttempt(storage(), a);
         },
+        onCode: (c) => (code = c),
         onSlow: () => (slow = true),
         cancelled: () => gone || state !== 'waiting',
       });
-      await dropAttempt(storage()).catch(() => undefined);
-      dispatch('paired', p);
+      drop();
+      yes = p;
+      state = 'confirm';
     } catch (e) {
-      if (gone || (e as Error).message === 'cancelled') return; // kept: scanning this code again carries on
-      await dropAttempt(storage()).catch(() => undefined); // this code is done with, one way or another
+      if (gone || (e as Error).message === 'cancelled') return;
+      drop();
       if (e instanceof PairRefusedError) {
         refusal = e.message;
         state = 'refused';
@@ -183,9 +217,13 @@
     }
   }
 
-  function cancelWaiting() {
-    state = 'start';
-    again();
+  function confirmYes() {
+    if (yes) dispatch('paired', yes);
+  }
+
+  function confirmNo() {
+    yes = null; // not kept; the pairing's keys go with it, and nothing more is sent
+    state = 'declined';
   }
 </script>
 
@@ -198,6 +236,7 @@
         A remote for the Truthcoin App on your computer. Open the app there, go to <strong>Settings › Phone</strong>,
         and scan its code.
       </p>
+      <p class="small warn">Only scan the code your own computer shows. Never use a pairing link someone sent you.</p>
       {#if alreadyPaired}
         <p class="small warn">This phone is paired with a computer already. Pairing again replaces it.</p>
       {/if}
@@ -212,7 +251,10 @@
       <details bind:open={pasteOpen}>
         <summary>Can't scan? Paste the pairing link</summary>
         <form class="stack paste" on:submit|preventDefault={pastePair}>
-          <p class="muted small">On your computer, click <strong>Copy link</strong> next to the QR code, and paste it here.</p>
+          <p class="muted small">
+            On your own computer, click <strong>Copy link</strong> next to the QR code, and paste it here. Never paste a
+            link someone sent you.
+          </p>
           <label for="pairlink">Pairing link</label>
           <input
             id="pairlink"
@@ -244,6 +286,24 @@
       <h2>Scan the code</h2>
       <Scanner on:value={scanned} on:cancel={again} on:failed={scanFailed} />
     </div>
+  {:else if state === 'resume'}
+    <div class="card stack" data-testid="pair-resume">
+      <h2>Carry on pairing?</h2>
+      <p>Carry on pairing with the computer whose key is <strong class="mono" data-testid="pair-fingerprint">{fingerprint}</strong>?</p>
+      <p class="small muted">This page was closed or reloaded while it was pairing as <strong>{name}</strong>.</p>
+      {#if otherComputer && currentD}
+        <p class="small warn">
+          This is a different computer from the one this phone is paired with (key {keyFingerprint(currentD)}, now
+          {fingerprint}). Pairing replaces it.
+        </p>
+      {:else if alreadyPaired}
+        <p class="small warn">Pairing again replaces the computer this phone is paired with now.</p>
+      {/if}
+      <div class="buttons">
+        <button on:click={stopResume}>Stop</button>
+        <button class="primary" on:click={pair}>Carry on</button>
+      </div>
+    </div>
   {:else if state === 'form' && !pairHere}
     <div class="card stack" data-testid="homescreen-first">
       <h2>Add Truthcoin to your Home Screen first</h2>
@@ -258,10 +318,21 @@
       </ol>
     </div>
     <button class="full" on:click={() => (pairHere = true)}>Pair in this browser instead</button>
+    <button class="full" on:click={again}>Back</button>
   {:else if state === 'form'}
     <form class="card stack" on:submit|preventDefault={pair}>
       <h2>Name this phone</h2>
-      {#if alreadyPaired}
+      <p class="small">
+        The computer's key: <strong class="mono" data-testid="pair-fingerprint">{fingerprint}</strong>. Your computer shows
+        the same under Settings › Phone.
+      </p>
+      <p class="small warn">Only scan the code your own computer shows. Never use a pairing link someone sent you.</p>
+      {#if otherComputer && currentD}
+        <p class="small warn" data-testid="pair-other-computer">
+          This is a different computer from the one this phone is paired with (key {keyFingerprint(currentD)}, now
+          {fingerprint}). Pairing replaces it.
+        </p>
+      {:else if alreadyPaired}
         <p class="small warn">Pairing again replaces the computer this phone is paired with now.</p>
       {/if}
       <div>
@@ -273,25 +344,49 @@
       <button class="full" type="button" on:click={again}>Back</button>
       <p class="muted small">The code works for {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} more.</p>
     </form>
-  {:else if state === 'working'}
-    <div class="card center">
-      <p><span class="spinner"></span> Making this phone's keys…</p>
-    </div>
   {:else if state === 'waiting'}
     <div class="card stack center" data-testid="pair-waiting">
-      <p>Check that your computer shows the same code:</p>
-      <p class="code num" data-testid="pair-code">{code}</p>
-      <p>
-        The Truthcoin App on your computer asks <strong>“Allow this phone?”</strong> for <strong>{cleanName(name)}</strong>.
-        Allow it only if the codes match.
-      </p>
-      <p class="muted small">A different code means someone else is pairing with your QR code: refuse that one.</p>
+      {#if code}
+        <p>Check that your computer shows the same code:</p>
+        <p class="code num" data-testid="pair-code">{code}</p>
+        <p>
+          The Truthcoin App on your computer asks <strong>“Allow this phone?”</strong> for <strong>{cleanName(name)}</strong>.
+          Allow it only if the codes match.
+        </p>
+        <p class="muted small">A different code means someone else is pairing with your QR code: refuse that one.</p>
+      {:else}
+        <p data-testid="pair-no-code-yet"><span class="spinner"></span> Waiting for your computer…</p>
+        <p class="muted small">The code to compare appears here once your computer has the request.</p>
+      {/if}
+      <p class="small">The computer's key: <strong class="mono">{fingerprint}</strong></p>
       {#if slow}
         <p class="warn" data-testid="pair-slow">No answer yet. Is the app open on your computer?</p>
-      {:else}
+      {:else if code}
         <p class="muted small"><span class="spinner"></span> Waiting for your computer. Keep this page open.</p>
       {/if}
-      <button class="full" on:click={cancelWaiting}>Cancel</button>
+      <button class="full" on:click={again}>Cancel</button>
+    </div>
+  {:else if state === 'confirm'}
+    <div class="card stack" data-testid="pair-confirm">
+      <h2>Did you allow it?</h2>
+      {#if code}
+        <p>Did your computer show <strong class="num">{code}</strong>, and did you allow it there?</p>
+      {:else}
+        <p>Did your computer ask you to allow <strong>{cleanName(name)}</strong>, and did you allow it there?</p>
+      {/if}
+      <p class="small muted">
+        Only your own computer can ask. If it didn't, the code came from someone else: answer No, and nothing is kept.
+      </p>
+      <div class="buttons">
+        <button on:click={confirmNo}>No</button>
+        <button class="primary" on:click={confirmYes}>Yes, I allowed it</button>
+      </div>
+    </div>
+  {:else if state === 'declined'}
+    <div class="card stack bad" data-testid="pair-declined">
+      <h2>Not paired</h2>
+      <p>Nothing was kept on this phone. If your own computer lists it under Settings › Phone, remove it there.</p>
+      <button class="full" on:click={again}>Back</button>
     </div>
   {:else if state === 'refused'}
     <div class="card stack bad">

@@ -65,8 +65,15 @@ describe('protocol-v1.json', () => {
     expect(keyFingerprint(V.keys.D.public)).toBe(V.keys.D.fingerprint);
   });
 
-  it('makes the comparison code of the vector', async () => {
-    expect(await pairCode(pub('D'), pub('P'), pub('E1'), fromB64u(V.pair.C))).toBe(V.pair.comparison_code);
+  it('makes the comparison code of the vector (with the commitment nonce N)', async () => {
+    expect(await pairCode(pub('D'), pub('P'), pub('E1'), fromB64u(V.pair.C), fromB64u(V.pair.N))).toBe(
+      V.pair.comparison_code,
+    );
+    // Without N's 16 bytes, or with another N, it isn't the code.
+    await expect(pairCode(pub('D'), pub('P'), pub('E1'), fromB64u(V.pair.C), new Uint8Array(15))).rejects.toThrow();
+    expect(await pairCode(pub('D'), pub('P'), pub('E1'), fromB64u(V.pair.C), new Uint8Array(16))).not.toBe(
+      V.pair.comparison_code,
+    );
   });
 
   it('seals the request (P to D) exactly as the vector, and D opens it', async () => {

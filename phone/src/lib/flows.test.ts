@@ -13,18 +13,18 @@ const P = { s: '2222222222222222222222222222222222222222222222222222222222222222
 const RELAY = 'wss://relay.example';
 const args = { marketId: 'a1b2c3d4e5f6', outcome: 1, shares: 100, side: 'buy' as const, limit: 60 };
 
-async function setup(kv: Kv = memoryKv()) {
+async function setup(kv: Kv = memoryKv(), nsec = newNostrSecret()) {
   const dPub = pubBytes(D.p);
   const pPub = pubBytes(P.p);
   const dPriv = await importPrivate(fromHex(D.s), dPub);
   const pPriv = await importPrivate(fromHex(P.s), pPub);
-  const nsec = newNostrSecret();
   const ndSec = newNostrSecret();
   const f = fakeWsFactory();
   const order: string[] = [];
   const spy: Kv = {
     get: kv.get,
     del: kv.del,
+    wipe: kv.wipe,
     set: async (k, v) => {
       order.push(`kept:${k}`);
       await kv.set(k, v);
@@ -45,7 +45,8 @@ async function setup(kv: Kv = memoryKv()) {
     send(d);
   };
   const sub = relay.of('REQ')[0][1] as string;
-  const flows = new TradeFlows(link, spy, undefined, 2000);
+  const npub = nostrPub(nsec);
+  const flows = new TradeFlows(link, spy, npub, undefined, 2000);
   flowsRef = flows;
   async function requests(): Promise<Request[]> {
     const out: Request[] = [];
@@ -58,21 +59,24 @@ async function setup(kv: Kv = memoryKv()) {
     const env = await sealMsg({ sPriv: dPriv, sPub: dPub, rPub: pPub }, padJson(obj));
     relay.push(['EVENT', sub, messageEvent(ndSec, nostrPub(nsec), envelopeJson(env), Math.floor(Date.now() / 1000))]);
   }
-  return { flows, order, relay, requests, reply, kv, link };
+  return { flows, order, relay, requests, reply, kv, link, npub, nsec };
 }
 
 describe('trade flows', () => {
   it('keep a trade before it is first sent', async () => {
-    const { flows, order, relay, kv } = await setup();
+    const { flows, order, relay, kv, npub } = await setup();
     const f = await flows.start(args, { title: 'T', label: 'Yes' });
     await waitFor(() => relay.of('EVENT').length > 0);
-    expect(order.indexOf('kept:pending')).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf('kept:pending')).toBeLessThan(order.indexOf('sent'));
-    expect((await loadPending(kv)).map((p) => p.req.id)).toEqual([f.id]);
+    const kept = order.indexOf(`kept:pending:${npub}`);
+    expect(kept).toBeGreaterThanOrEqual(0);
+    expect(kept).toBeLessThan(order.indexOf('sent'));
+    expect((await loadPending(kv, npub)).map((p) => p.req.id)).toEqual([f.id]);
+    // Kept under this pairing only: another pairing's list is its own.
+    expect(await loadPending(kv, 'ef'.repeat(32))).toEqual([]);
   });
 
   it('send the trade args the protocol names, and end pending with the txid', async () => {
-    const { flows, requests, reply, kv } = await setup();
+    const { flows, requests, reply, kv, npub } = await setup();
     const f = await flows.start(args, { title: 'T', label: 'Yes' });
     const [req] = await (async () => {
       await waitFor(() => flows.get(f.id) !== undefined);
@@ -84,15 +88,15 @@ describe('trade flows', () => {
     expect(req.a).toEqual({ id: 'a1b2c3d4e5f6', outcome: 1, shares: 100, side: 'buy', limit: 60 });
     await reply({ re: f.id, ok: { status: 'pending', txid: 'ab'.repeat(32) } });
     await waitFor(() => flows.get(f.id)!.state.k === 'pending');
-    expect(await loadPending(kv)).toEqual([]); // final: no longer kept
+    expect(await loadPending(kv, npub)).toEqual([]); // final: no longer kept
   });
 
   it('keep an "unsure" trade open (it may have gone), and let it be asked about again', async () => {
-    const { flows, reply, kv } = await setup();
+    const { flows, reply, kv, npub } = await setup();
     const f = await flows.start(args, { title: 'T', label: 'Yes' });
     await reply({ re: f.id, unsure: 'Not confirmed: check Positions before trying again' });
     await waitFor(() => flows.get(f.id)!.state.k === 'unconfirmed');
-    expect((await loadPending(kv)).map((p) => p.state)).toEqual(['unconfirmed']);
+    expect((await loadPending(kv, npub)).map((p) => p.state)).toEqual(['unconfirmed']);
     flows.askAgain(f.id);
     expect(flows.get(f.id)!.state.k).toBe('sending');
     await reply({ re: f.id, ok: { status: 'pending', txid: null } });
@@ -126,6 +130,20 @@ describe('trade flows', () => {
     link.stop();
   });
 
+  it('write nothing once stopped (a newer pairing may own the storage)', async () => {
+    const { flows, reply, kv, npub, link } = await setup();
+    const f = await flows.start(args, { title: 'T', label: 'Yes' });
+    let n = 0;
+    await waitFor(() => (void loadPending(kv, npub).then((l) => (n = l.length)), n === 1));
+    await kv.set(`pending:${npub}`, []); // as if a re-pairing had cleared it
+    flows.stop();
+    await reply({ re: f.id, unsure: 'May have gone' }); // a state change after the stop
+    await waitFor(() => flows.get(f.id)!.state.k === 'unconfirmed');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await loadPending(kv, npub)).toEqual([]);
+    link.stop();
+  });
+
   it('come back after a reload, still held, and are asked about under the same id', async () => {
     const kv = memoryKv();
     const a = await setup(kv);
@@ -133,7 +151,7 @@ describe('trade flows', () => {
     await a.reply({ re: f.id, held: { text: 'Over the limit' } });
     await waitFor(() => a.flows.get(f.id)!.state.k === 'held');
     a.link.stop();
-    const b = await setup(kv);
+    const b = await setup(kv, a.nsec); // the same pairing, after a reload
     await b.flows.resume();
     expect(b.flows.get(f.id)!.state).toEqual({ k: 'held', text: 'Over the limit' });
     let reqs: Request[] = [];

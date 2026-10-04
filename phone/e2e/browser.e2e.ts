@@ -113,9 +113,22 @@ for (const [name, type] of engines) {
     let errors: string[] = [];
     const shots = resolve(here, 'shots', name);
     let n = 0;
+    let shotsInTest = 0;
     const shot = async (what: string) => {
+      if (process.env.E2E_NO_SHOTS) return;
+      shotsInTest++;
       mkdirSync(shots, { recursive: true });
-      await page.screenshot({ path: join(shots, `${String(++n).padStart(2, '0')}-${what}.png`), fullPage: true });
+      // caret 'initial': Playwright's default hides the caret with an injected stylesheet, which the page's CSP refuses.
+      await page.screenshot({ path: join(shots, `${String(++n).padStart(2, '0')}-${what}.png`), fullPage: true, caret: 'initial' });
+    };
+
+    // WebKit's screenshots inject a stylesheet of Playwright's own, which the page's CSP refuses (one console error
+    // per screenshot; none without screenshots). Only those, at most one per screenshot, are set aside: anything else,
+    // CSP included, still fails the test.
+    const SHOT_CSP = "Refused to apply a stylesheet because its hash, its nonce, or 'unsafe-inline' does not appear in the style-src directive of the Content Security Policy.";
+    const pageErrors = () => {
+      let allowance = name === 'webkit' ? shotsInTest : 0;
+      return errors.filter((m) => !(m === SHOT_CSP && allowance-- > 0));
     };
 
     beforeAll(async () => {
@@ -146,20 +159,23 @@ for (const [name, type] of engines) {
 
     it('shows the not-paired screen at phone width, without console errors', async () => {
       errors = [];
+      shotsInTest = 0;
       await page.goto(prod.base + '/');
       await page.getByRole('button', { name: 'Scan the code' }).waitFor();
       await page.getByText('A remote for the Truthcoin App on your computer.').waitFor();
+      await page.getByText('Never use a pairing link someone sent you.').waitFor();
       const width = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(width).toBeLessThanOrEqual(390);
       await shot('not-paired');
       await page.emulateMedia({ colorScheme: 'light' });
       await shot('not-paired-light');
       await page.emulateMedia({ colorScheme: 'dark' });
-      expect(errors).toEqual([]);
+      expect(pageErrors(), errors.join('\n')).toEqual([]);
     });
 
     it('reads #pair= and strips it from the address bar before anything renders', async () => {
       errors = [];
+      shotsInTest = 0;
       const value = b64u(
         utf8(
           JSON.stringify({
@@ -176,12 +192,51 @@ for (const [name, type] of engines) {
       await page.locator('#devname, [data-testid=homescreen-first]').first().waitFor();
       expect(await page.evaluate(() => (window as unknown as { hashAtRender: string }).hashAtRender)).toBe('');
       expect(page.url()).not.toContain('pair=');
+      if (await page.locator('[data-testid=homescreen-first]').count()) {
+        await page.getByRole('button', { name: 'Pair in this browser instead' }).click();
+      }
+      // The computer's key, as the desktop shows it in Settings › Phone (the vectors' D).
+      expect(await page.getByTestId('pair-fingerprint').textContent()).toBe('2bad 0fd6 10d9');
       await shot('pair-form');
-      expect(errors).toEqual([]);
+      expect(pageErrors(), errors.join('\n')).toEqual([]);
+    });
+
+    it('refuses an expiry more than 10 minutes ahead', async () => {
+      errors = [];
+      shotsInTest = 0;
+      const value = b64u(
+        utf8(
+          JSON.stringify({
+            v: 1,
+            r: ['wss://relay.example'],
+            n: 'ab'.repeat(32),
+            d: VECTOR_D.public,
+            c: b64u(new Uint8Array(16).fill(12)),
+            x: Math.floor(Date.now() / 1000) + 86400,
+          }),
+        ),
+      );
+      await page.goto(`${prod.base}/#pair=${value}`);
+      await page.getByText('lasts far longer').waitFor();
+      expect(pageErrors(), errors.join('\n')).toEqual([]);
+    });
+
+    it("doesn't run inside another page's frame", async () => {
+      // A fresh page (an about:blank reached from the phone page would carry the phone page's own CSP).
+      const framer = await ctx.newPage();
+      try {
+        await framer.setContent(`<iframe src="${prod.base}/#pair=abc" width="390" height="600"></iframe>`);
+        const frame = framer.frameLocator('iframe');
+        await frame.getByText('Open this page directly').waitFor();
+        expect(await frame.locator('[data-testid=pair]').count()).toBe(0);
+      } finally {
+        await framer.close();
+      }
     });
 
     it('pairs through the relay, trades with a held buy, stays paired after a reload, and forgets', async () => {
       errors = [];
+      shotsInTest = 0;
       const desktop = await new TestDesktop({
         relays: [relay.url],
         ws: nodeWs,
@@ -200,16 +255,26 @@ for (const [name, type] of engines) {
         await page.fill('#devname', 'E2E phone');
         await page.getByRole('button', { name: 'Pair', exact: true }).click();
         const code = page.getByTestId('pair-code');
-        await code.waitFor();
+        await code.waitFor(); // only once the computer's nonce N has come
         await eventually(() => desktop.lastCode, (v) => v !== null);
         expect(await code.textContent()).toBe(desktop.lastCode);
         await shot('pair-code');
-        // Reload while the computer is still asking: the page carries on with the same keys and the same code.
+        // Reload while the computer is still asking: the page asks before carrying on, then carries on with the same
+        // keys and the same code.
         await page.reload();
+        await page.getByTestId('pair-resume').waitFor();
+        expect(await page.getByTestId('pair-fingerprint').textContent()).toBe('2bad 0fd6 10d9');
+        await shot('pair-resume');
+        await page.getByRole('button', { name: 'Carry on' }).click();
         await page.getByTestId('pair-code').waitFor();
         expect(await page.getByTestId('pair-code').textContent()).toBe(desktop.lastCode);
         expect(page.url()).not.toContain('pair=');
 
+        // The computer said yes: nothing is kept until this phone's person confirms they allowed it.
+        await page.getByTestId('pair-confirm').waitFor({ timeout: 20_000 });
+        expect(await page.getByTestId('pair-confirm').textContent()).toContain(String(desktop.lastCode));
+        await shot('pair-confirm');
+        await page.getByRole('button', { name: 'Yes, I allowed it' }).click();
         await page.getByTestId('home').waitFor({ timeout: 20_000 });
         expect(desktop.contested).toBe(false);
         await eventually(() => page.getByTestId('balance').textContent(), (v) => String(v).includes('4,905,000 sats'), 15_000);
@@ -270,6 +335,7 @@ for (const [name, type] of engines) {
               r.onsuccess = () => {
                 const g = r.result.transaction('kv').objectStore('kv').get('pairing');
                 g.onsuccess = async () => {
+                  r.result.close(); // an open connection would hold up "Forget" (deleteDatabase) later
                   const k = g.result.pPriv as CryptoKey;
                   const exported = await crypto.subtle.exportKey('jwk', k).then(
                     () => true,
@@ -292,10 +358,12 @@ for (const [name, type] of engines) {
         await shot('settings');
         await page.getByRole('button', { name: 'Forget this computer' }).click();
         await page.getByTestId('forget-confirm').click();
-        await page.getByRole('button', { name: 'Scan the code' }).waitFor();
+        await page.getByRole('button', { name: 'Scan the code' }).waitFor({ timeout: 15_000 });
+        expect(desktop.unpaired.length).toBe(1); // the computer was asked to forget this phone, and did
+        expect(await page.locator('[data-testid=notice], [data-testid=load-error]').count()).toBe(0);
         await page.reload();
         await page.getByRole('button', { name: 'Scan the code' }).waitFor();
-        expect(errors).toEqual([]);
+        expect(pageErrors(), errors.join('\n')).toEqual([]);
       } finally {
         desktop.stop();
       }

@@ -4,13 +4,14 @@ import { attemptFor, newAttempt, parsePairValue } from './pairing';
 import { relayList, validRelay } from './relays';
 
 const D = 'BAIX5hfwtkQ5KCePlpmeaaI6TywVK99tbN9m5bgCgtTtGUp968uXcS0t2jyoWqh2Wlb0X8dYWZZS8ol8ZTBuV5Q';
+const NOW = Math.floor(Date.now() / 1000);
 const good = {
   v: 1,
   r: ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'],
   n: 'ab'.repeat(32),
   d: D,
   c: 'DAwMDAwMDAwMDAwMDAwMDA',
-  x: 1791200300,
+  x: NOW + 300,
 };
 const enc = (o: unknown) => b64u(utf8(JSON.stringify(o)));
 
@@ -50,6 +51,12 @@ describe('the pairing code', () => {
     }
   });
 
+  it('refuses an expiry more than 10 minutes ahead (a desktop issues 5)', async () => {
+    expect((await parsePairValue(enc({ ...good, x: NOW + 600 }), false, NOW)).x).toBe(NOW + 600);
+    await expect(parsePairValue(enc({ ...good, x: NOW + 601 }), false, NOW)).rejects.toThrow(/lasts far longer/);
+    await expect(parsePairValue(enc({ ...good, x: NOW + 20 * 86400 }), false, NOW)).rejects.toThrow(/lasts far longer/);
+  });
+
   it('refuses other versions and junk', async () => {
     await expect(parsePairValue(enc({ ...good, v: 2 }), false)).rejects.toThrow(/version/);
     await expect(parsePairValue('!!!', false)).rejects.toThrow(/damaged/);
@@ -61,9 +68,9 @@ describe('the pairing code', () => {
 describe('a kept pairing attempt', () => {
   it('answers its own code only, until the code expires (plus the grace)', async () => {
     const link = await parsePairValue(enc(good), false);
-    const a = await newAttempt(link, 'My\u202E phone');
+    const a = await newAttempt(link, 'My\u202E phone', NOW);
     expect(a.name).toBe('My phone');
-    expect(a.code).toMatch(/^\d{3} \d{3}$/);
+    expect(a.code).toBeUndefined(); // the code needs the computer's nonce N
     expect(a.pPriv.extractable).toBe(false);
     expect(a.ePriv.extractable).toBe(false);
     expect(attemptFor(a, link, good.x - 10)).toBe(a);
@@ -72,6 +79,13 @@ describe('a kept pairing attempt', () => {
     expect(attemptFor(a, { ...link, c: b64u(new Uint8Array(16).fill(1)) }, good.x - 10)).toBeNull();
     expect(attemptFor(a, { ...link, n: 'cd'.repeat(32) }, good.x - 10)).toBeNull();
     expect(attemptFor(null, link, good.x - 10)).toBeNull();
+  });
+
+  it('lives at most 5 minutes (plus the grace) from when it was made, whatever the link says', async () => {
+    const link = await parsePairValue(enc({ ...good, x: NOW + 600 }), false, NOW);
+    const a = await newAttempt(link, 'Phone', NOW);
+    expect(attemptFor(a, link, NOW + 329)).toBe(a);
+    expect(attemptFor(a, link, NOW + 331)).toBeNull(); // the link would allow 600 + 30
   });
 });
 

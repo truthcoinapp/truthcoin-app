@@ -8,6 +8,8 @@ export interface Kv {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   del(key: string): Promise<void>;
+  /** Delete everything kept (IndexedDB: the whole database). Rejects, with words for people, when it can't. */
+  wipe(): Promise<void>;
 }
 
 const STORE = 'kv';
@@ -42,10 +44,38 @@ export function idbKv(name = 'truthcoin-phone'): Kv {
       db.close();
     }
   }
+  // Deleting the database, not its records: deleted records can linger in the browser's files until compaction.
+  function wipe(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      let req: IDBOpenDBRequest;
+      try {
+        req = indexedDB.deleteDatabase(name);
+      } catch (e) {
+        reject(new Error(`This browser refused to delete the page's storage (${(e as Error).message}).`));
+        return;
+      }
+      let blocked: ReturnType<typeof setTimeout> | undefined;
+      req.onsuccess = () => {
+        clearTimeout(blocked);
+        resolve();
+      };
+      req.onerror = () => {
+        clearTimeout(blocked);
+        reject(new Error(`This browser couldn't delete the page's storage (${req.error?.message ?? 'unknown error'}).`));
+      };
+      req.onblocked = () => {
+        blocked = setTimeout(
+          () => reject(new Error('The page is open in another tab or window, which keeps its storage in use: close it, then try again.')),
+          4000,
+        );
+      };
+    });
+  }
   return {
     get: <T>(key: string) => tx<T>('readonly', (s) => s.get(key)),
     set: async (key, value) => void (await tx('readwrite', (s) => s.put(value, key))),
     del: async (key) => void (await tx('readwrite', (s) => s.delete(key))),
+    wipe,
   };
 }
 
@@ -55,12 +85,14 @@ export function memoryKv(): Kv {
     get: async <T>(key: string) => m.get(key) as T | undefined,
     set: async (key, value) => void m.set(key, value),
     del: async (key) => void m.delete(key),
+    wipe: async () => m.clear(),
   };
 }
 
 const PAIRING = 'pairing';
-const PENDING = 'pending';
 const ATTEMPT = 'pair-attempt';
+/** Each pairing's waiting trades apart (by its Nostr key): a trade never comes back under another pairing's keys. */
+const pendingKey = (npub: string) => `pending:${npub}`;
 
 /** The pairing under way (one code's keys), so a reload or a retry answers that code with the same keys. */
 export async function loadAttempt(kv: Kv): Promise<PairAttempt | null> {
@@ -85,11 +117,9 @@ export async function savePairing(kv: Kv, p: Pairing): Promise<void> {
   await kv.set(PAIRING, p);
 }
 
-/** "Forget this computer": the keys, the desktop's details and the waiting trades all go. */
+/** "Forget this computer": the keys, the desktop's details and the waiting trades all go, the database with them. */
 export async function forgetAll(kv: Kv): Promise<void> {
-  await kv.del(PAIRING);
-  await kv.del(PENDING);
-  await kv.del(ATTEMPT);
+  await kv.wipe();
 }
 
 /** A trade sent from this phone that has no final answer yet. */
@@ -106,11 +136,15 @@ export interface PendingTrade {
 /** The desktop keeps request ids for 24 hours; after that, asking again could not be answered from its record. */
 export const PENDING_KEEP_MS = 24 * 3600_000;
 
-export async function loadPending(kv: Kv, nowMs = Date.now()): Promise<PendingTrade[]> {
-  const list = (await kv.get<PendingTrade[]>(PENDING)) ?? [];
+export async function loadPending(kv: Kv, npub: string, nowMs = Date.now()): Promise<PendingTrade[]> {
+  const list = (await kv.get<PendingTrade[]>(pendingKey(npub))) ?? [];
   return Array.isArray(list) ? list.filter((p) => p && p.req && nowMs - p.at < PENDING_KEEP_MS) : [];
 }
 
-export async function savePending(kv: Kv, list: PendingTrade[]): Promise<void> {
-  await kv.set(PENDING, list);
+export async function savePending(kv: Kv, npub: string, list: PendingTrade[]): Promise<void> {
+  await kv.set(pendingKey(npub), list);
+}
+
+export async function dropPending(kv: Kv, npub: string): Promise<void> {
+  await kv.del(pendingKey(npub));
 }

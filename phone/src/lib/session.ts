@@ -6,7 +6,7 @@ import { TradeFlows } from './flows';
 import { NoAnswerError, PhoneLink, ReplyError, UnsureError } from './link';
 import { linkKeys, type Pairing } from './pairing';
 import type { RelayInfo, WsFactory } from './relaypool';
-import { forgetAll, idbKv, savePairing, type Kv } from './store';
+import { forgetAll, idbKv, loadPairing, savePairing, type Kv } from './store';
 import { cleanName } from './text';
 import type { Balance, MarketsPage, Positions, Receive, Status, TradeRecord } from './validate';
 import type { TradeFlow } from './flows';
@@ -32,7 +32,34 @@ const WHAT: Record<string, string> = {
   trade: 'trade',
   trades: 'recent trades',
   receive: 'address',
+  unpair: 'forgetting this phone',
 };
+
+// Other tabs or the installed app on the same storage: told when this one pairs or forgets, so they reload rather
+// than keep writing under a pairing that's gone.
+const channel: BroadcastChannel | null = (() => {
+  try {
+    return typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('truthcoin-phone');
+  } catch {
+    return null;
+  }
+})();
+
+export function announce(what: 'paired' | 'forgotten') {
+  try {
+    channel?.postMessage(what);
+  } catch {
+    // no other tabs to tell
+  }
+}
+
+/** Called when another tab paired or forgot. */
+export function onOtherTab(fn: () => void): () => void {
+  if (!channel) return () => undefined;
+  const h = () => fn();
+  channel.addEventListener('message', h);
+  return () => channel.removeEventListener('message', h);
+}
 
 export const pairing = writable<Pairing | null>(null);
 export const relays = writable<RelayInfo[]>([]);
@@ -118,7 +145,7 @@ export function startSession(p: Pairing, o: { ws?: WsFactory } = {}) {
     onLateReply: (r) => void tradeFlows?.late(r),
   });
   api = new Api(link, tracker);
-  tradeFlows = new TradeFlows(link, storage(), tracker);
+  tradeFlows = new TradeFlows(link, storage(), p.npub, tracker);
   // A trade that gets its final answer changes the balance and positions: ask for them again.
   const seen = new Map<string, string>();
   unsubFlows = tradeFlows.store.subscribe((list) => {
@@ -140,6 +167,7 @@ export function startSession(p: Pairing, o: { ws?: WsFactory } = {}) {
 export function stopSession() {
   unsubFlows?.();
   unsubFlows = null;
+  tradeFlows?.stop(); // first: nothing it does from here on is written
   link?.stop();
   link = null;
   api = null;
@@ -195,7 +223,8 @@ export async function refreshStatus(): Promise<Status> {
       pairing.set(next);
       if (changedRelays) link?.setRelays(next.relays);
       try {
-        await savePairing(storage(), next);
+        // Only over the same pairing: another tab may have paired again or forgotten it meanwhile.
+        if ((await loadPairing(storage()))?.npub === next.npub) await savePairing(storage(), next);
       } catch {
         // kept for this visit only
       }
@@ -225,8 +254,23 @@ export function refreshHome(o: { trades?: boolean } = {}): Promise<void> {
   return run;
 }
 
-/** Forget this computer: stop, and delete the keys and everything kept. */
-export async function forget(): Promise<void> {
+/**
+ * Forget this computer: ask the desktop to forget this phone too (best effort, a few seconds), stop, then delete the
+ * page's whole database. `told` says whether the desktop confirmed. Rejects, with words for people, when the database
+ * couldn't be deleted (the session is stopped either way).
+ */
+export async function forget(): Promise<{ told: boolean }> {
+  let told = false;
+  if (api) {
+    try {
+      await api.unpair();
+      told = true;
+    } catch {
+      // the desktop may be closed: the person removes the phone there
+    }
+  }
   stopSession();
   await forgetAll(storage());
+  announce('forgotten');
+  return { told };
 }

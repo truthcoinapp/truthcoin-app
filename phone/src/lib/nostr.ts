@@ -85,6 +85,18 @@ export function verifyEvent(e: unknown): e is NostrEvent {
   }
 }
 
+/**
+ * A cheap pre-filter for the relay pool, before any signature is checked: the link's kind, from `from`, to `to`. The
+ * full checks (id, signature, the first `p` tag) still follow for an event that passes.
+ */
+export function fromTo(from: string, to: string) {
+  return (e: { kind?: unknown; pubkey?: unknown; tags?: unknown }): boolean =>
+    e.kind === KIND &&
+    e.pubkey === from &&
+    Array.isArray(e.tags) &&
+    e.tags.some((t) => Array.isArray(t) && t[0] === 'p' && t[1] === to);
+}
+
 /** The value of the first tag named `name`. */
 export function tag(e: NostrEvent, name: string): string | undefined {
   const t = e.tags.find((t) => t[0] === name);

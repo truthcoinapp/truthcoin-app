@@ -37,7 +37,10 @@
     {#if s.text}<p class="small">{s.text}</p>{/if}
     <p class="small muted">It's over this phone's limit for today, so the Truthcoin App on your computer asks first.</p>
   {:else if s.k === 'pending'}
-    <p><strong>Sent.</strong> It goes through with the next Truthcoin block (about 10–17 minutes).</p>
+    <p>
+      <strong>Sent to your computer's node.</strong> It trades with the next Truthcoin block (about 10–17 minutes) if
+      the price is still within your limit. Recent trades on Home shows how it went.
+    </p>
     {#if s.txid}<p class="small muted mono">Transaction {shortId(s.txid)}</p>{/if}
   {:else if s.k === 'refused'}
     <p><strong>Not done.</strong> {s.msg}</p>

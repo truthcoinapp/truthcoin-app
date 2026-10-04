@@ -146,4 +146,71 @@ describe('the relay pool', () => {
     expect(f.last(B)).toBeTruthy();
     pool.stop();
   });
+
+  it('drops a repeat before anything else, and runs the cheap filter before the signature', () => {
+    const seenByFilter: string[] = [];
+    const { f, got } = setup([A], {
+      accept: (e) => {
+        seenByFilter.push(String((e as { content?: string }).content));
+        return (e as { pubkey?: string }).pubkey !== 'cd'.repeat(32);
+      },
+    });
+    const a = f.last(A);
+    a.open();
+    const ev = messageEvent(newNostrSecret(), me, 'once', 1000);
+    a.push(['EVENT', subOf(a), ev]);
+    a.push(['EVENT', subOf(a), ev]);
+    expect(got.map((e) => e.content)).toEqual(['once']);
+    expect(seenByFilter).toEqual(['once']); // the repeat never reached the filter (nor the signature check)
+    a.push(['EVENT', subOf(a), { ...ev, id: 'ff'.repeat(32), pubkey: 'cd'.repeat(32), content: 'stranger' }]);
+    expect(got.length).toBe(1);
+  });
+
+  it('drops a relay that floods, for its penalty, and kick() does not cut that short', async () => {
+    const { pool, f } = setup([A], { budgetEvents: 5, budgetWindowMs: 10_000, penaltyMs: 400 });
+    const a = f.last(A);
+    a.open();
+    const sk = newNostrSecret();
+    for (let i = 0; i < 6; i++) a.push(['EVENT', subOf(a), messageEvent(sk, me, `e${i}`, 1000 + i)]);
+    expect(a.readyState).toBe(3);
+    expect(pool.info()[0]).toMatchObject({ state: 'waiting', note: 'flooding' });
+    pool.kick();
+    expect(f.sockets.length).toBe(1);
+    await waitFor(() => f.sockets.length === 2, 3000);
+  });
+
+  it('drops a relay that sends a frame over 256 KiB', () => {
+    const { pool, f } = setup([A], { penaltyMs: 60_000 });
+    const a = f.last(A);
+    a.open();
+    a.onmessage?.({ data: '["NOTICE","' + 'x'.repeat(300 * 1024) + '"]' });
+    expect(a.readyState).toBe(3);
+    expect(pool.info()[0]).toMatchObject({ state: 'waiting', note: 'frame too big' });
+    pool.stop();
+  });
+
+  it('starts the backoff over only after a connection has stayed up', async () => {
+    const { f } = setup([A], { backoffMin: 50, backoffMax: 5000, stableMs: 150 });
+    // A relay that accepts and closes at once: each pause doubles (50, 100, 200, 400 ms, with jitter).
+    for (let i = 0; i < 4; i++) {
+      const s = f.last(A);
+      s.open();
+      s.drop();
+      await waitFor(() => f.last(A) !== s, 3000);
+    }
+    let s = f.last(A);
+    s.open();
+    s.drop();
+    let t = Date.now();
+    await waitFor(() => f.last(A) !== s, 5000);
+    expect(Date.now() - t).toBeGreaterThan(400); // 800 ms ± 25%
+    // One that stays up past stableMs starts over.
+    s = f.last(A);
+    s.open();
+    await tick(250);
+    s.drop();
+    t = Date.now();
+    await waitFor(() => f.last(A) !== s, 5000);
+    expect(Date.now() - t).toBeLessThan(400); // 50 ms ± 25%
+  });
 });

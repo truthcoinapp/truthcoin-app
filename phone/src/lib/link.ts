@@ -3,9 +3,9 @@
 // delay anything, so a request without an answer is sent again (sealed afresh, same id, same `ts`, same args): the
 // desktop answers a repeat from its record and never runs it twice. Keeping the first `ts` means a request can only
 // ever start within the desktop's 5-minute window after it was made; later repeats can only fetch its answer.
-import { isRequestId, newRequestId, type Bytes } from './bytes';
+import { fromB64u, isRequestId, newRequestId, type Bytes } from './bytes';
 import { envelopeJson, openMsg, padJson, parseEnvelope, sealMsg, unpadJson } from './crypto';
-import { KIND, messageEvent, tag, type NostrEvent } from './nostr';
+import { fromTo, KIND, messageEvent, tag, type NostrEvent } from './nostr';
 import { RelayPool, type Published, type RelayInfo, type WsFactory } from './relaypool';
 import { cleanText } from './text';
 
@@ -34,7 +34,9 @@ export type Reply =
   | { re: string; k: 'ok'; ok: unknown }
   | { re: string; k: 'err'; err: string }
   | { re: string; k: 'held'; text: string }
-  | { re: string; k: 'unsure'; text: string };
+  | { re: string; k: 'unsure'; text: string }
+  /** Pairing only: the desktop's 16-byte commitment nonce N for the comparison code. */
+  | { re: string; k: 'nonce'; nonce: Bytes };
 
 /** The link was stopped (forgetting the computer) while the request waited: nothing is known about it. */
 export class LinkStoppedError extends Error {
@@ -66,7 +68,7 @@ export function parseReply(v: unknown): Reply | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
   if (!isRequestId(o.re)) return null;
-  const has = ['ok', 'err', 'held', 'unsure'].filter((k) => k in o);
+  const has = ['ok', 'err', 'held', 'unsure', 'nonce'].filter((k) => k in o);
   if (has.length !== 1) return null;
   if (has[0] === 'ok') return { re: o.re, k: 'ok', ok: o.ok };
   if (has[0] === 'err') {
@@ -76,6 +78,15 @@ export function parseReply(v: unknown): Reply | null {
   if (has[0] === 'unsure') {
     if (typeof o.unsure !== 'string') return null;
     return { re: o.re, k: 'unsure', text: cleanText(o.unsure, 300) || UNSURE };
+  }
+  if (has[0] === 'nonce') {
+    if (typeof o.nonce !== 'string') return null;
+    try {
+      const n = fromB64u(o.nonce);
+      return n.length === 16 ? { re: o.re, k: 'nonce', nonce: n } : null;
+    } catch {
+      return null;
+    }
   }
   const h = o.held as Record<string, unknown> | null;
   if (!h || typeof h !== 'object' || typeof h.text !== 'string') return null;
@@ -145,6 +156,7 @@ export class PhoneLink {
       relays,
       ws: opts.ws,
       filter: () => ({ kinds: [KIND], '#p': [keys.npub], since: this.now() - 120 }),
+      accept: fromTo(keys.nd, keys.npub),
       onEvent: (e) => void this.onEvent(e),
       onChange: opts.onRelays,
       log: opts.log,
@@ -260,6 +272,7 @@ export class PhoneLink {
 
   /** A reply that opened: to its waiting request, unless that id already had its final answer (a repeat). */
   dispatch(r: Reply) {
+    if (r.k === 'nonce') return; // pairing's, not a request's
     if (this.done.has(r.re)) return;
     const w = this.waiting.get(r.re);
     // `held` and `unsure` leave the id open: a final answer may still follow.

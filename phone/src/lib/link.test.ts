@@ -69,6 +69,11 @@ describe('replies', () => {
     expect(parseReply({ re, unsure: 'May have gone' })).toEqual({ re, k: 'unsure', text: 'May have gone' });
     expect(parseReply({ re, unsure: '' })).toEqual({ re, k: 'unsure', text: 'Not confirmed: check Positions before trying again' });
     expect(parseReply({ re, unsure: 5 })).toBeNull();
+    const n = parseReply({ re, nonce: 'Tk5OTk5OTk5OTk5OTk5OTg' });
+    expect(n?.k).toBe('nonce');
+    expect(n && n.k === 'nonce' ? n.nonce.length : 0).toBe(16);
+    expect(parseReply({ re, nonce: 'AAAA' })).toBeNull(); // not 16 bytes
+    expect(parseReply({ re, nonce: 7 })).toBeNull();
     for (const err of [
       'Two phones tried to pair with this code: refuse, and start again',
       "The computer couldn't read some of its trade records, so phones can't trade until you look",

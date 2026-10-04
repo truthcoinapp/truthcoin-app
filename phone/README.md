@@ -46,9 +46,39 @@ go to `e2e/shots/<engine>/`.
 
 - **Asking again keeps the first `ts`**: a repeat is the same request (id, `ts`, args) sealed afresh.
 - **Pairing also probes with `status`** every 5 seconds, so a lost pairing answer doesn't leave the phone waiting.
+- **The comparison code includes the desktop's commitment nonce N** (`{"re","nonce"}`, sent after the phone's
+  request): the phone shows "Waiting for your computer…" until N comes, and resends keep the same P, nP and id, so
+  they get the same N. A yes that overtakes N waits up to 3 s for it.
 - **`unsure` keeps a trade open** ("Not confirmed: check Positions before trying again", Ask again with the same id);
   `err` always means not done.
 - **Nullable fields** (`status.height`, `market.state`, `market.volume`, a trade's `txid`) and 0-based pages.
 
-Beyond it: the phone also asks again about unanswered trades (and asks for `status`) when the page comes back to the
-front, polls held trades every 60 seconds, and follows at most the first 5 usable relays in `status`.
+## Pairing safeguards (from the v0.1.0 security review)
+
+- **Links:** an expiry `x` more than 10 minutes ahead is refused. The Name and waiting screens show the computer's key
+  fingerprint (as the desktop shows it in Settings › Phone), warn when it's a different computer from the one paired
+  now, and say: "Only scan the code your own computer shows. Never use a pairing link someone sent you."
+- **Attempts:** one pairing code's keys (P, E, nP, the request id, the name, then N) are kept in IndexedDB only while
+  that pairing is under way, at most 5 minutes plus 30 s from when they were made. Leaving the pairing screen in any
+  way drops them (unloading the page doesn't). After a reload the page asks "Carry on pairing with the computer whose
+  key is …? [Carry on] [Stop]"; it never carries on by itself.
+- **Confirming:** after the desktop's yes, nothing is kept until the person answers "Did your computer show <code>,
+  and did you allow it there?" with "Yes, I allowed it". "No" keeps nothing and sends nothing more.
+- **Sessions:** pairing again stops the old session before anything is written; a stopped session writes nothing;
+  waiting trades are kept per pairing (`pending:<npub>`); the status reply's name, limit or relays are saved only over
+  the same pairing. Other tabs reload when one pairs or forgets (BroadcastChannel).
+- **Forget** asks the desktop to `unpair` (a few seconds, best effort), then deletes the whole IndexedDB database, and
+  says when either didn't work.
+- **Relays:** a repeat of an accepted event is dropped before anything else; a cheap check (kind, from the desktop,
+  to us) runs before the signature check; a relay sending more than 50 events in 10 s, or a frame over 256 KiB, is
+  dropped for 5 minutes; reconnect backoff starts over only after 30 s up.
+- **Framing:** inside another page's frame, the page shows "Open this page directly" and stops before reading the
+  fragment or storage.
+- **CSP:** `default-src 'none'; script-src 'self'; style-src 'self'; connect-src wss:; img-src 'self' data:;
+  manifest-src 'self'; base-uri 'none'; form-action 'none'` (no `'unsafe-inline'`, no `worker-src`). Only the dev
+  server relaxes it, for Vite's injected styles. The browser checks fail on any console error, CSP included; WebKit's
+  screenshots inject a stylesheet of Playwright's own, and only those refusals (one per screenshot) are set aside.
+
+Beyond the protocol: the phone also asks again about unanswered trades (and asks for fresh data) when the page comes
+back to the front, polls held trades every 60 seconds, refreshes Home when shown and every 30 s while shown, and
+follows at most the first 5 usable relays in `status`.

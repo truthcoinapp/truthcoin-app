@@ -2,9 +2,20 @@
   import { onDestroy, onMount } from 'svelte';
   import { takePairFragment } from './lib/fragment';
   import type { Pairing } from './lib/pairing';
-  import { forget, kick, pairing, refreshHome, relays, startSession, stopSession, storage } from './lib/session';
+  import {
+    announce,
+    forget,
+    kick,
+    onOtherTab,
+    pairing,
+    refreshHome,
+    relays,
+    startSession,
+    stopSession,
+    storage,
+  } from './lib/session';
   import { attemptFor, type PairAttempt } from './lib/pairing';
-  import { dropAttempt, loadAttempt, loadPairing, savePairing, savePending } from './lib/store';
+  import { dropAttempt, dropPending, loadAttempt, loadPairing, savePairing } from './lib/store';
   import type { Market as MarketData, MarketSummary, Side } from './lib/validate';
   import Home from './components/Home.svelte';
   import LastLine from './components/LastLine.svelte';
@@ -27,8 +38,13 @@
   let marketHint: { title: string; state?: string } | null = null;
   let tradeOf: { market: MarketData; outcome: number; side: Side } | null = null;
   let resume: PairAttempt | null = null;
+  let notice = '';
+  let forgetting = false;
+  let unsubTabs: (() => void) | null = null;
 
   onMount(async () => {
+    // Another tab or the installed app paired or forgot: this one's state is stale, so start over from storage.
+    unsubTabs = onOtherTab(() => location.reload());
     let p: Pairing | null = null;
     let a: PairAttempt | null = null;
     try {
@@ -38,13 +54,17 @@
       loadError = "This browser won't let the page keep its key (private browsing?), so it can't stay paired.";
     }
     if (p) startSession(p);
-    // A pairing that was under way when the page reloaded (the #pair= link is gone by then): carry on with its keys.
+    // A pairing that was under way when the page reloaded (the #pair= link is gone by then): offered, never carried on
+    // without asking.
     resume = a && !pairValue ? attemptFor(a, a.link, Math.floor(Date.now() / 1000)) : null;
     if (a && !resume && !pairValue) void dropAttempt(storage()).catch(() => undefined);
     screen = pairValue || !p || resume ? 'pair' : 'home';
     history.replaceState({ screen: screen === 'pair' ? 'pair' : 'home' }, '');
   });
-  onDestroy(stopSession);
+  onDestroy(() => {
+    unsubTabs?.();
+    stopSession();
+  });
 
   // Tabs replace each other; a market and a trade are pages on top (the phone's back gesture goes back).
   function go(s: Screen, push = false) {
@@ -98,13 +118,18 @@
 
   async function onPaired(e: CustomEvent<Pairing>) {
     const p = e.detail;
+    const old = $pairing;
+    stopSession(); // first: the old session writes nothing from here on
     try {
-      await savePending(storage(), []); // trades kept for a computer this phone was paired with before
+      if (old && old.npub !== p.npub) await dropPending(storage(), old.npub); // the old pairing's trades go with it
       await savePairing(storage(), p);
+      await dropAttempt(storage());
       loadError = '';
     } catch {
       loadError = "This browser won't let the page keep its key (private browsing?): this pairing lasts only until the page closes.";
     }
+    announce('paired');
+    notice = '';
     pairValue = null;
     resume = null;
     startSession(p);
@@ -119,7 +144,17 @@
   }
 
   async function doForget() {
-    await forget().catch(() => undefined);
+    forgetting = true;
+    try {
+      const r = await forget();
+      loadError = '';
+      notice = r.told
+        ? ''
+        : "Your computer didn't confirm that it forgot this phone (is the app open there?). Remove the phone there too, under Settings › Phone.";
+    } catch (e) {
+      loadError = `This phone's keys may still be here: ${(e as Error).message}`;
+    }
+    forgetting = false;
     tradeOf = null;
     go('pair');
   }
@@ -146,13 +181,23 @@
   {/if}
 </header>
 
-{#if loadError}<p class="card bad small notice">{loadError}</p>{/if}
+{#if loadError}<p class="card bad small notice" data-testid="load-error">{loadError}</p>{/if}
+{#if notice}<p class="card held small notice" data-testid="notice">{notice}</p>{/if}
 
-{#if screen === 'loading'}
+{#if forgetting}
+  <p class="card center-card"><span class="spinner"></span> Forgetting this computer…</p>
+{:else if screen === 'loading'}
   <p class="muted center"><span class="spinner"></span></p>
 {:else if screen === 'pair'}
   {#key pairValue}
-    <Pair {pairValue} {resume} alreadyPaired={!!$pairing} on:paired={onPaired} on:cancel={cancelPair} />
+    <Pair
+      {pairValue}
+      {resume}
+      alreadyPaired={!!$pairing}
+      currentD={$pairing?.d ?? null}
+      on:paired={onPaired}
+      on:cancel={cancelPair}
+    />
   {/key}
 {:else if $pairing}
   <LastLine />
@@ -223,6 +268,9 @@
   }
   .notice {
     margin-bottom: 12px;
+  }
+  .center-card {
+    text-align: center;
   }
   .center {
     text-align: center;

@@ -20,6 +20,8 @@
 
   let sharesText = '';
   let quote: Quote | null = null;
+  /** What the shown quote was asked for: the trade sends exactly these. */
+  let quoteFor: { shares: number; side: Side } | null = null;
   let quotedAt = 0;
   let quoting = false;
   let error = '';
@@ -42,18 +44,26 @@
   $: overLimit = quote && $status ? counts > $status.leftSats : false;
 
   function pick(s: Side) {
+    if (quoting) return;
     side = s;
     quote = null;
+    quoteFor = null;
     error = '';
   }
 
   async function getPrice() {
-    if (shares === null || tooMany) return;
+    if (shares === null || tooMany || quoting) return;
+    const asked = { shares, side };
     quoting = true;
     error = '';
     quote = null;
+    quoteFor = null;
     try {
-      quote = await currentApi().quote({ id: market.id, outcome, shares, side });
+      const q = await currentApi().quote({ id: market.id, outcome, shares: asked.shares, side: asked.side });
+      // An answer for a form that has changed meanwhile isn't this trade's price.
+      if (shares !== asked.shares || side !== asked.side) return;
+      quote = q;
+      quoteFor = asked;
       quotedAt = Date.now();
       now = quotedAt;
     } catch (e) {
@@ -64,11 +74,18 @@
   }
 
   async function trade() {
-    if (!quote || shares === null || starting) return;
+    if (!quote || !quoteFor || starting) return;
+    // The trade is the one quoted: its own shares and side, never whatever the form says now.
+    if (shares !== quoteFor.shares || side !== quoteFor.side) {
+      quote = null;
+      quoteFor = null;
+      return;
+    }
+    const t = quoteFor;
     starting = true;
     try {
       const f = await tradeFlowsNow().start(
-        { marketId: market.id, outcome, shares, side, limit: quote.limit },
+        { marketId: market.id, outcome, shares: t.shares, side: t.side, limit: quote.limit },
         { title: market.title, label },
       );
       flowId = f.id;
@@ -100,8 +117,12 @@
     <form class="card stack" on:submit|preventDefault={() => (quote && !stale ? trade() : getPrice())}>
       {#if heldShares > 0}
         <div class="seg" role="group" aria-label="Buy or sell">
-          <button type="button" class:on={side === 'buy'} aria-pressed={side === 'buy'} on:click={() => pick('buy')}>Buy</button>
-          <button type="button" class:on={side === 'sell'} aria-pressed={side === 'sell'} on:click={() => pick('sell')}>Sell</button>
+          <button type="button" class:on={side === 'buy'} aria-pressed={side === 'buy'} disabled={quoting} on:click={() => pick('buy')}
+            >Buy</button
+          >
+          <button type="button" class:on={side === 'sell'} aria-pressed={side === 'sell'} disabled={quoting} on:click={() => pick('sell')}
+            >Sell</button
+          >
         </div>
       {/if}
       <div>
@@ -109,7 +130,8 @@
         <input
           id="shares"
           bind:value={sharesText}
-          on:input={() => (quote = null)}
+          on:input={() => ((quote = null), (quoteFor = null))}
+          disabled={quoting}
           inputmode="numeric"
           autocomplete="off"
           placeholder={side === 'sell' ? `up to ${fmtShares(heldShares)}` : 'for example 1,000'}
@@ -157,7 +179,7 @@
 
       {#if quote && !stale}
         <button class="primary full" type="submit" disabled={starting}>
-          {side === 'buy' ? 'Buy' : 'Sell'} {fmtShares(shares ?? 0)} {label}
+          {quoteFor?.side === 'sell' ? 'Sell' : 'Buy'} {fmtShares(quoteFor?.shares ?? 0)} {label}
         </button>
         <button class="full" type="button" on:click={getPrice} disabled={quoting}>Get a new price</button>
       {:else}

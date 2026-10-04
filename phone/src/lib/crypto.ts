@@ -235,15 +235,22 @@ function groupCode(n: number): string {
 }
 
 /**
- * The comparison code both screens show at pairing: SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C), its
- * first 4 bytes big-endian, modulo 1,000,000, as six digits in two groups ("042 917"). Someone else pairing with the
- * same QR code has another P and E, so their code differs.
+ * The comparison code both screens show at pairing: SHA-256("tcr-pair-sas-v1" || D_pub || P_pub || E_pub || C || N),
+ * its first 4 bytes big-endian, modulo 1,000,000, as six digits in two groups ("042 917"). N is the desktop's
+ * 16-byte commitment nonce, chosen after the phone's P and E are fixed, so nobody can search for keys that give a code
+ * they want. Someone else pairing with the same QR code has another P and E, so their code differs.
  */
-export async function pairCode(dPub: Uint8Array, pPub: Uint8Array, ePub: Uint8Array, c: Uint8Array): Promise<string> {
-  if (dPub.length !== 65 || pPub.length !== 65 || ePub.length !== 65 || c.length !== 16) {
+export async function pairCode(
+  dPub: Uint8Array,
+  pPub: Uint8Array,
+  ePub: Uint8Array,
+  c: Uint8Array,
+  n: Uint8Array,
+): Promise<string> {
+  if (dPub.length !== 65 || pPub.length !== 65 || ePub.length !== 65 || c.length !== 16 || n.length !== 16) {
     throw new Error('bad input for the comparison code');
   }
-  const h = await sha256(concat(utf8(SAS_LABEL), dPub, pPub, ePub, c));
+  const h = await sha256(concat(utf8(SAS_LABEL), dPub, pPub, ePub, c, n));
   const u32 = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
   return groupCode(u32 % 1_000_000);
 }

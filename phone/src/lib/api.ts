@@ -59,6 +59,10 @@ export class Api {
   receive() {
     return this.call('receive', {}, v.receive);
   }
+  /** Ask the desktop to forget this phone: best effort, a short wait. */
+  unpair() {
+    return this.call('unpair', {}, v.unpaired, { timeoutMs: 6000, resendAt: [2000, 4000] });
+  }
 }
 
 /** Words for people about a failed request. */

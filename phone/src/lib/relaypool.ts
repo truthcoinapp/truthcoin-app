@@ -1,6 +1,8 @@
 // A small Nostr client (NIP-01) for the phone link: one WebSocket per relay, one subscription on each, every event
-// published to every relay. Relays are untrusted: every incoming event's id and signature are checked, then
-// duplicates (by event id) dropped, before anything else sees it. Dropped connections reconnect with backoff, and a
+// published to every relay. Relays are untrusted, and anyone can address events to the phone's key, so each incoming
+// event goes through the cheap checks first: a repeat of an event already accepted is dropped, then one that isn't
+// from the expected sender to us (`accept`), and only then is its id and signature checked. A relay that floods
+// (too many events, or a frame too big) is dropped for minutes. Dropped connections reconnect with backoff, and a
 // relay that answers `OK false "rate-limited: …"` gets nothing more for a while. One working relay is enough.
 import { hex, randomBytes } from './bytes';
 import { verifyEvent, type NostrEvent } from './nostr';
@@ -46,6 +48,11 @@ export interface PoolOptions {
   /** The subscription's filter, made fresh at each (re)subscribe so `since` stays recent. */
   filter: () => Filter;
   onEvent: (e: NostrEvent) => void;
+  /**
+   * A cheap check before the signature: is this (claimed) event one we could want at all? The link passes "kind
+   * 21913, from the desktop's key, to ours". Its id and signature are checked after it passes.
+   */
+  accept?: (e: { kind?: unknown; pubkey?: unknown; tags?: unknown }) => boolean;
   ws?: WsFactory;
   onChange?: (relays: RelayInfo[]) => void;
   log?: (msg: string) => void;
@@ -55,6 +62,13 @@ export interface PoolOptions {
   /** The first pause after `OK false "rate-limited: …"`, ms (doubling up to a minute). */
   rateBackoffMs?: number;
   connectTimeoutMs?: number;
+  /** A relay sending more than `budgetEvents` events in `budgetWindowMs`, or a frame over 256 KiB, is dropped for
+   * `penaltyMs`. */
+  budgetEvents?: number;
+  budgetWindowMs?: number;
+  penaltyMs?: number;
+  /** The reconnect backoff starts over only after a connection has stayed up this long. */
+  stableMs?: number;
 }
 
 const SEEN_MAX = 4096;
@@ -74,6 +88,10 @@ class Relay {
   private stopped = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private connectTimer: ReturnType<typeof setTimeout> | undefined;
+  private stableTimer: ReturnType<typeof setTimeout> | undefined;
+  private eventTimes: number[] = [];
+  /** Sitting out a penalty until then (ms): `kick` doesn't cut it short. */
+  private penaltyUntil = 0;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private resubTimer: ReturnType<typeof setTimeout> | undefined;
   private queue: Outgoing[] = [];
@@ -110,8 +128,12 @@ class Relay {
       if (this.ws !== ws) return;
       clearTimeout(this.connectTimer);
       this.state = 'open';
-      this.attempts = 0;
       this.note = '';
+      this.eventTimes = [];
+      // A relay that accepts and closes at once keeps backing off; one that stays up starts afresh.
+      this.stableTimer = setTimeout(() => {
+        if (this.ws === ws && this.state === 'open') this.attempts = 0;
+      }, this.pool.stableMs);
       this.subscribe();
       this.flush();
       this.pool.changed();
@@ -127,10 +149,14 @@ class Relay {
     };
   }
 
-  /** The connection is gone: put events without an answer back in the queue, and try again after a pause. */
-  private lost(ws: WsLike | null, why: string) {
+  /**
+   * The connection is gone: put events without an answer back in the queue, and try again after a pause (the
+   * backoff, or `pauseMs` when the relay misbehaved).
+   */
+  private lost(ws: WsLike | null, why: string, pauseMs?: number) {
     clearTimeout(this.connectTimer);
     clearTimeout(this.resubTimer);
+    clearTimeout(this.stableTimer);
     if (ws) {
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
       try {
@@ -147,14 +173,21 @@ class Relay {
     this.note = why;
     const base = Math.min(this.pool.backoffMax, this.pool.backoffMin * 2 ** Math.min(this.attempts, 16));
     this.attempts++;
-    this.reconnectTimer = setTimeout(() => this.connect(), base * (0.75 + Math.random() * 0.5));
+    this.reconnectTimer = setTimeout(() => this.connect(), pauseMs ?? base * (0.75 + Math.random() * 0.5));
     this.pool.changed();
   }
 
-  /** Connect again now, when the page comes back to the front or the network returns. */
+  /** A relay over its budget: close it, and leave it alone for minutes. */
+  private penalize(why: string) {
+    this.pool.log(`${this.url}: ${why}; dropped for a while`);
+    this.penaltyUntil = Date.now() + this.pool.penaltyMs;
+    this.lost(this.ws, why, this.pool.penaltyMs);
+  }
+
+  /** Connect again now, when the page comes back to the front or the network returns (not a relay sitting out a
+   * penalty: its pause stands). */
   kick() {
-    if (this.stopped || this.ws) return;
-    this.attempts = 0;
+    if (this.stopped || this.ws || Date.now() < this.penaltyUntil) return;
     this.connect();
   }
 
@@ -196,7 +229,10 @@ class Relay {
 
   private message(data: unknown) {
     const text = typeof data === 'string' ? data : String(data);
-    if (text.length > MAX_FRAME) return;
+    if (text.length > MAX_FRAME) {
+      this.penalize('frame too big');
+      return;
+    }
     let m: unknown;
     try {
       m = JSON.parse(text);
@@ -206,9 +242,17 @@ class Relay {
     if (!Array.isArray(m) || typeof m[0] !== 'string') return;
     const say = (s: unknown) => (typeof s === 'string' ? s.slice(0, 200) : '');
     switch (m[0]) {
-      case 'EVENT':
+      case 'EVENT': {
+        const now = Date.now();
+        this.eventTimes.push(now);
+        while (this.eventTimes.length && now - this.eventTimes[0] > this.pool.budgetWindowMs) this.eventTimes.shift();
+        if (this.eventTimes.length > this.pool.budgetEvents) {
+          this.penalize('flooding');
+          return;
+        }
         if (m[1] === this.sub) this.pool.incoming(m[2]);
         break;
+      }
       case 'OK': {
         const item = typeof m[1] === 'string' ? this.inflight.get(m[1]) : undefined;
         if (!item) break;
@@ -260,6 +304,7 @@ class Relay {
     clearTimeout(this.connectTimer);
     clearTimeout(this.flushTimer);
     clearTimeout(this.resubTimer);
+    clearTimeout(this.stableTimer);
     for (const item of [...this.queue, ...this.inflight.values()]) this.pool.result(item.ev.id, this.url, false, 'stopped');
     this.queue = [];
     this.inflight.clear();
@@ -292,6 +337,10 @@ export class RelayPool {
   readonly backoffMax: number;
   readonly connectTimeoutMs: number;
   readonly rateBackoffMs: number;
+  readonly budgetEvents: number;
+  readonly budgetWindowMs: number;
+  readonly penaltyMs: number;
+  readonly stableMs: number;
   private relays = new Map<string, Relay>();
   private seen = new Set<string>();
   private tallies = new Map<string, Tally>();
@@ -304,6 +353,10 @@ export class RelayPool {
     this.backoffMax = opts.backoffMax ?? 60_000;
     this.connectTimeoutMs = opts.connectTimeoutMs ?? 10_000;
     this.rateBackoffMs = opts.rateBackoffMs ?? 2000;
+    this.budgetEvents = opts.budgetEvents ?? 50;
+    this.budgetWindowMs = opts.budgetWindowMs ?? 10_000;
+    this.penaltyMs = opts.penaltyMs ?? 5 * 60_000;
+    this.stableMs = opts.stableMs ?? 30_000;
     for (const url of opts.relays) this.relays.set(url, new Relay(url, this));
   }
 
@@ -404,13 +457,19 @@ export class RelayPool {
     if (!t.waitingOn.size) this.settle(id);
   }
 
-  /** An event a relay sent: checked, then deduplicated, then passed on. */
+  /**
+   * An event a relay sent. Cheapest first: a repeat of one already accepted, then one we can't want (`accept`), then
+   * its id and signature. Only a good one joins `seen`, so a forgery can't block the real event with its id.
+   */
   incoming(raw: unknown) {
+    if (!raw || typeof raw !== 'object') return;
+    const id = (raw as { id?: unknown }).id;
+    if (typeof id === 'string' && this.seen.has(id)) return;
+    if (this.opts.accept && !this.opts.accept(raw as { kind?: unknown; pubkey?: unknown; tags?: unknown })) return;
     if (!verifyEvent(raw)) {
       this.log('dropped an event with a bad id or signature');
       return;
     }
-    if (this.seen.has(raw.id)) return;
     this.seen.add(raw.id);
     if (this.seen.size > SEEN_MAX) {
       const first = this.seen.values().next().value as string;

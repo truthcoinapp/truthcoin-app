@@ -9,11 +9,17 @@ const VERSION: string = JSON.parse(readFileSync(new URL('./package.json', import
 // end-to-end checks against dev/test-relay.mjs; its CSP allows those two and nothing else extra.
 const LOCAL_CONNECT = 'ws://127.0.0.1:* ws://localhost:*';
 
+// The dev server (`npm run dev`) injects styles and talks to Vite over a WebSocket: only there does the CSP allow
+// them. Built pages keep the strict one in index.html.
 function csp(local: boolean): Plugin {
   return {
     name: 'csp-local-relays',
-    transformIndexHtml(html) {
-      return local ? html.replace("connect-src wss:;", `connect-src wss: ${LOCAL_CONNECT};`) : html;
+    transformIndexHtml(html, ctx) {
+      let out = local ? html.replace('connect-src wss:;', `connect-src wss: ${LOCAL_CONNECT};`) : html;
+      if (ctx.server) {
+        out = out.replace("style-src 'self';", "style-src 'self' 'unsafe-inline';").replace('connect-src wss:', 'connect-src wss: ws:');
+      }
+      return out;
     },
   };
 }
