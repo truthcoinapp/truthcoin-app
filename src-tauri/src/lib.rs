@@ -106,6 +106,8 @@ pub fn run() {
             commands::settings_advanced,
             commands::settings_advanced_set,
             commands::markets,
+            commands::settled,
+            wallet::ecash_address,
             commands::market,
             commands::positions,
             commands::trade_quote,

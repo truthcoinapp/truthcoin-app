@@ -27,10 +27,10 @@
     --border: #d8e0e7;
     --text: #13202b;
     --text-2: #5b6b7a;
-    --accent: #1f9e7c;
+    --accent: #1b8a6b;
     --accent-ink: #ffffff;
-    --accent-tint: rgba(31, 158, 124, 0.1);
-    --warn: #b7791f;
+    --accent-tint: rgba(27, 138, 107, 0.1);
+    --warn: #8f5b00;
     --warn-tint: rgba(183, 121, 31, 0.1);
     --error: #c2453a;
     --error-tint: rgba(194, 69, 58, 0.08);
@@ -491,6 +491,28 @@ pre.log {
 
 .back {
   margin-bottom: 10px;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.faded {
+  opacity: 0.6;
+}
+
+.stale .big {
+  opacity: 0.55;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: auto;
+}
+
+.seg button.on {
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .spin {

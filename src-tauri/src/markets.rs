@@ -325,6 +325,19 @@ async fn holder_of(rpc: &Rpc, market_id: &str, outcome_index: u32, shares: u64) 
     }
 }
 
+/// "15,217": amounts in messages read as on the screens.
+pub fn fmt_sats(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Why a trade wasn't placed: refused (nothing went to the node, or the node said no) or unsure (it went, and no answer
 /// came back: it may be in the node's mempool).
 #[derive(Debug, Clone, PartialEq)]
@@ -364,14 +377,16 @@ pub async fn place(
     match side {
         Side::Buy if limit_sats < q.sats + MINER_FEE => {
             return Err(PlaceError::Refused(format!(
-                "The price is now about {} sats; with the {} sat miner fee your cap of {limit_sats} is too low",
-                q.sats, MINER_FEE
+                "The price moved: it's now about {} sats with the miner fee, over your cap of {}. Get a new price.",
+                fmt_sats(q.sats + MINER_FEE),
+                fmt_sats(limit_sats)
             )))
         }
         Side::Sell if limit_sats > q.sats.saturating_sub(MINER_FEE) => {
             return Err(PlaceError::Refused(format!(
-                "Selling now brings about {} sats; less the {} sat miner fee, that is below your minimum of {limit_sats}",
-                q.sats, MINER_FEE
+                "The price moved: selling now brings about {} sats after the miner fee, under your minimum of {}. Get a new price.",
+                fmt_sats(q.sats.saturating_sub(MINER_FEE)),
+                fmt_sats(limit_sats.saturating_sub(MINER_FEE))
             )))
         }
         _ => {}
@@ -542,6 +557,14 @@ mod tests {
         assert!(refused_before_sending(-1, "utxo double spent"));
         assert!(!refused_before_sending(-1, "database error: MDB_MAP_FULL"), "a failure after sending");
         assert!(!refused_before_sending(-1, ""));
+    }
+
+    #[test]
+    fn thousands() {
+        assert_eq!(fmt_sats(0), "0");
+        assert_eq!(fmt_sats(999), "999");
+        assert_eq!(fmt_sats(15217), "15,217");
+        assert_eq!(fmt_sats(100000000), "100,000,000");
     }
 
     #[test]

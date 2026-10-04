@@ -15,6 +15,19 @@
   let timer: ReturnType<typeof setInterval>;
   let heldCount = 0;
   let marketToOpen: string | null = null;
+  let lastHeight: number | null = null;
+  $: if (node?.height) lastHeight = node.height;
+  // A per-window convenience (not a security setting): the safety line once dismissed.
+  let safetySeen = false;
+  try {
+    safetySeen = localStorage.getItem("safetySeen") === "1";
+  } catch {}
+  function seeSafety() {
+    safetySeen = true;
+    try {
+      localStorage.setItem("safetySeen", "1");
+    } catch {}
+  }
 
   async function poll() {
     try {
@@ -90,7 +103,14 @@
       </div>
     {/if}
     {#if tab === "home"}
-      <Home {wallet} {running} on:market={(e) => { tab = "markets"; marketToOpen = e.detail; }} on:changed={poll} />
+      {#if !safetySeen}
+        <div class="notice">
+          Anything running on this computer could spend from this wallet: keep only what you're trading in it, and close
+          the app when you're done. <button class="link" on:click={() => (tab = "settings")}>Why</button> ·
+          <button class="link" on:click={seeSafety}>Got it</button>
+        </div>
+      {/if}
+      <Home {wallet} {running} height={node.height ?? lastHeight} on:market={(e) => { tab = "markets"; marketToOpen = e.detail; }} on:changed={poll} />
     {:else if tab === "markets"}
       <Markets {running} bind:open={marketToOpen} />
     {:else if tab === "phone"}

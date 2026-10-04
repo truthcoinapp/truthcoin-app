@@ -138,7 +138,7 @@
   <div class="card">
     <h2>Install the Truthcoin node</h2>
     <p>
-      The app downloads L2L's Truthcoin node from GitHub (about 50 MB) and keeps it only if it is exactly the release
+      The app downloads L2L's Truthcoin node from GitHub (about 56 MB) and keeps it only if it is exactly the release
       this app was checked with.
     </p>
     {#if prog?.running}
@@ -167,6 +167,10 @@
   <div class="card">
     <h2>Your wallet</h2>
     <p>Make a new wallet, or bring one back from its recovery words.</p>
+    <p class="small muted">
+      Anything running on this computer could spend from this wallet: keep only what you're trading in it, and close the
+      app when you're done.
+    </p>
     <div class="actions">
       <button class="primary" on:click={newWords}>New wallet</button>
       <button on:click={() => (mode = "restore")}>I have recovery words</button>
@@ -202,7 +206,7 @@
     {/each}
     <div class="actions">
       <button class="primary" disabled={busy || answers.some((a) => !a.trim())} on:click={confirm}>Make the wallet</button>
-      <button on:click={() => (mode = "new")}>Show the words again</button>
+      <button on:click={() => { err = ""; mode = "new"; }}>Show the words again</button>
     </div>
   </div>
 {:else}

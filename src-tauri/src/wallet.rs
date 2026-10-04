@@ -27,13 +27,76 @@ pub async fn has_seed(rpc: &crate::rpc::Rpc) -> Result<bool, String> {
 #[derive(Serialize)]
 pub struct WalletStatus {
     pub has_seed: bool,
+    /// What the wallet holds and can use, once what is moving settles: its coins, change coming back from its own
+    /// transfers, and the coins waiting trades hold less what those trades cost. Withdrawals on their way to eCash are
+    /// not in it (UX review B1).
     pub total_sats: u64,
+    /// Ready to use now.
     pub available_sats: u64,
     /// Coins big enough to pay for a trade. Each waiting trade holds one, so this is how many can wait at once.
     pub coins: usize,
     /// Coins spent by trades waiting for their block (they come back, as change and shares, in that block).
     pub in_pending_trades_sats: u64,
     pub pending_trades: usize,
+    /// Change from this wallet's own transfers, not yet in a block.
+    pub incoming_sats: u64,
+    /// On its way to eCash: withdrawals waiting for their bundle to pay out.
+    pub withdrawing_sats: u64,
+    /// Deposits from eCash sent in the last two hours (they arrive after an eCash block and the Truthcoin block after).
+    pub recent_deposits: Vec<Deposit>,
+}
+
+#[derive(Serialize, serde::Deserialize, Clone)]
+pub struct Deposit {
+    pub time: u64,
+    pub amount_sats: u64,
+    pub txid: String,
+}
+
+/// The value of an output's content: plain coins, and a withdrawal's value, from the node's JSON.
+fn content_value(c: &Value) -> (u64, u64) {
+    if let Some(n) = c["BitcoinSats"].as_u64().or_else(|| c["Bitcoin"].as_u64()) {
+        return (n, 0);
+    }
+    let w = c.as_object().and_then(|o| o.iter().find(|(k, _)| k.contains("Withdrawal")).map(|(_, v)| v.clone()));
+    if let Some(w) = w {
+        let v = w["value"].as_u64().or_else(|| w["value_sats"].as_u64()).or_else(|| w["amount"].as_u64()).unwrap_or(0);
+        return (0, v);
+    }
+    (0, 0)
+}
+
+/// Coins and withdrawals among the wallet's outputs.
+async fn holdings_in_coins(rpc: &crate::rpc::Rpc) -> Result<(u64, u64, u64), String> {
+    let utxos: Vec<Value> = rpc.private("get_wallet_utxos", json!([])).await?;
+    let (mut coins, mut withdrawing) = (0u64, 0u64);
+    for u in &utxos {
+        let (c, w) = content_value(&u["output"]["content"]);
+        coins = coins.saturating_add(c);
+        withdrawing = withdrawing.saturating_add(w);
+    }
+    let unconfirmed: Vec<Value> = rpc.private("my_unconfirmed_utxos", json!([])).await.unwrap_or_default();
+    let incoming = unconfirmed
+        .iter()
+        .map(|u| content_value(if u["output"].is_null() { u } else { &u["output"]["content"] }).0)
+        .fold(0u64, |a, b| a.saturating_add(b));
+    Ok((coins, incoming, withdrawing))
+}
+
+fn deposits_path(dir: &std::path::Path) -> std::path::PathBuf {
+    dir.join("deposits.json")
+}
+
+fn recent_deposits(dir: &std::path::Path) -> Vec<Deposit> {
+    let now = crate::activity::unix_now();
+    let l: Vec<Deposit> = crate::files::read_json(&deposits_path(dir)).ok().flatten().unwrap_or_default();
+    l.into_iter().filter(|d| d.time + 7200 > now).collect()
+}
+
+fn note_deposit(dir: &std::path::Path, d: Deposit) {
+    let mut l = recent_deposits(dir);
+    l.push(d);
+    let _ = crate::files::write_json(&deposits_path(dir), &l);
 }
 
 #[tauri::command]
@@ -43,18 +106,35 @@ pub async fn wallet_status(st: St<'_>) -> Result<WalletStatus, String> {
     if has_seed {
         mark_ready(&st.dir);
     }
-    let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
-    let _ = markets::refresh(&rpc, &st.trades).await;
-    let tied = markets::tied_up(&rpc, &st.trades).await;
-    let pending = st.trades.all().iter().filter(|t| t.status == crate::trades::Status::Pending).count();
+    let b = balance(&rpc, &st.trades).await?;
     let coins = if has_seed { coins(&rpc).await.unwrap_or(0) } else { 0 };
+    Ok(WalletStatus { has_seed, coins, recent_deposits: recent_deposits(&st.dir), ..b })
+}
+
+/// The balance as people read it (UX review B1), for the desktop and the phone.
+pub async fn balance(rpc: &crate::rpc::Rpc, trades: &crate::trades::Trades) -> Result<WalletStatus, String> {
+    let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
+    let _ = markets::refresh(rpc, trades).await;
+    let tied = markets::tied_up(rpc, trades).await;
+    let open: Vec<crate::trades::Trade> =
+        trades.all().into_iter().filter(|t| t.status == crate::trades::Status::Pending).collect();
+    // What the waiting trades will cost (a buy, its quote and miner fee); a sell's proceeds come later, as coins.
+    let cost: u64 = open
+        .iter()
+        .filter(|t| t.side == crate::trades::Side::Buy)
+        .map(|t| t.quoted_sats.saturating_add(markets::MINER_FEE))
+        .fold(0, |a, b| a.saturating_add(b));
+    let (coins, incoming, withdrawing) = holdings_in_coins(rpc).await?;
     Ok(WalletStatus {
-        has_seed,
-        coins,
-        total_sats: b["total_sats"].as_u64().unwrap_or(0),
+        has_seed: true,
+        coins: 0,
+        total_sats: coins.saturating_add(incoming).saturating_add(tied.saturating_sub(cost)),
         available_sats: b["available_sats"].as_u64().unwrap_or(0),
         in_pending_trades_sats: tied,
-        pending_trades: pending,
+        pending_trades: open.len(),
+        incoming_sats: incoming,
+        withdrawing_sats: withdrawing,
+        recent_deposits: vec![],
     })
 }
 
@@ -324,7 +404,14 @@ pub async fn deposit(st: St<'_>, amount_sats: u64, fee_sats: u64) -> Result<Stri
     let e = st.node.settings().enforcer;
     let txid = enforcer::deposit(&e, &r.address, amount_sats, fee_sats).await?;
     crate::activity::note(&st.dir, &format!("deposit of {amount_sats} sats from eCash sent"));
+    note_deposit(&st.dir, Deposit { time: crate::activity::unix_now(), amount_sats, txid: txid.clone() });
     Ok(txid)
+}
+
+/// A new address of BitWindow's eCash wallet (the enforcer's), to withdraw to.
+#[tauri::command]
+pub async fn ecash_address(st: St<'_>) -> Result<String, String> {
+    enforcer::new_address(&st.node.settings().enforcer).await
 }
 
 /// Withdraw to an eCash address. It joins the next withdrawal bundle, which eCash miners vote on over many blocks.

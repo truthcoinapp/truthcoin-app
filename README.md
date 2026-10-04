@@ -36,7 +36,7 @@ Check your download first: [Verify your download](#verify-your-download).
 ## First run
 
 1. With BitWindow's eCash running, open the app. It finds the enforcer.
-2. **Install:** it downloads L2L's Truthcoin node for your computer from L2L's GitHub release (about 50 MB) and keeps
+2. **Install:** it downloads L2L's Truthcoin node for your computer from L2L's GitHub release (about 56 MB) and keeps
    it only if its SHA-256 is the one pinned in this app (`src-tauri/src/node/pins.rs`). L2L publishes no checksums
    or signatures, so the pin is this app's own check, and this app's signed release vouches for it.
 3. **Start:** the node runs as the app's child, in the app's own data folder, on its own ports (it never clashes with
@@ -62,7 +62,7 @@ Check your download first: [Verify your download](#verify-your-download).
 
 ## Your phone
 
-Settings › Phone › **Pair a phone** shows a QR code. Scan it with the phone's camera: it opens the phone page
+The **Phone** tab › **Pair a phone** shows a QR code. Scan it with the phone's camera: it opens the phone page
 (`https://mblowes.github.io/truthcoin-app/`, built from this repository's tagged source), which pairs with the app.
 Both screens then show the same six-digit code: allow the phone only if they match.
 
@@ -74,7 +74,7 @@ then pair from there.
 
 The link is described in [`docs/PROTOCOL.md`](docs/PROTOCOL.md): P-256 ECDH, HKDF-SHA256 and AES-256-GCM, each
 message sealed on its own, carried by public Nostr relays (`wss://relay.damus.io`, `wss://nos.lol`,
-`wss://relay.primal.net` by default; change them in Settings › Phone › Relays).
+`wss://relay.primal.net` by default; change them in the Phone tab › Relays).
 
 ## What the app can't protect
 

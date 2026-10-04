@@ -173,6 +173,22 @@ pub async fn balance(addr: &str) -> Result<GetBalanceResponse, String> {
     unary(addr, "/cusf.mainchain.v1.WalletService/GetBalance", Empty {}, Duration::from_secs(20)).await
 }
 
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct CreateNewAddressResponse {
+    #[prost(string, tag = "1")]
+    pub address: String,
+}
+
+/// A new receiving address of the enforcer's wallet (BitWindow's eCash wallet).
+pub async fn new_address(addr: &str) -> Result<String, String> {
+    let r: CreateNewAddressResponse =
+        unary(addr, "/cusf.mainchain.v1.WalletService/CreateNewAddress", Empty {}, Duration::from_secs(20)).await?;
+    if r.address.is_empty() {
+        return Err("the enforcer gave no address".into());
+    }
+    Ok(r.address)
+}
+
 /// Deposit `value_sats` from the enforcer's wallet to `address` (a Truthcoin address of this wallet, not the
 /// `s13_…` deposit form), paying `fee_sats` on eCash. Returns the eCash txid.
 pub async fn deposit(addr: &str, address: &str, value_sats: u64, fee_sats: u64) -> Result<String, String> {

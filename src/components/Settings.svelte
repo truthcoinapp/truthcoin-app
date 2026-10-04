@@ -71,7 +71,7 @@
     <dt>Peers</dt><dd>{node.peers ?? "—"}</dd>
     <dt>Enforcer</dt><dd>{node.enforcer.reachable ? `${node.enforcer.address}, eCash block ${num(node.enforcer.height)}` : `not answering at ${node.enforcer.address}`}</dd>
     <dt>Node version</dt><dd>{info?.node_version}{node.own_program ? " (your own program)" : ""}</dd>
-    {#if node.wallet_host}<dt>Wallet calls on</dt><dd><code>{node.wallet_host}</code>{node.wallet_host === "127.0.0.1" ? " (a web page could find it by scanning)" : ""}</dd>{/if}
+
   </dl>
   {#if node.run.state === "failed"}<pre class="log" style="margin-top:10px">{node.run.message}</pre>{/if}
   <div class="actions">
@@ -121,8 +121,12 @@
         <div class="field" style="flex:1"><label for="zp">ZMQ port</label><input id="zp" bind:value={adv.zmq_port} inputmode="numeric" /></div>
       </div>
       <div class="field"><label for="pa">Peer-to-peer address</label><input id="pa" bind:value={adv.p2p_addr} /></div>
+      {#if node.wallet_host}<p class="small muted">The node's wallet calls are on <code>{node.wallet_host}</code>{node.wallet_host === "127.0.0.1" ? " (a web page could find it by scanning)" : ", a random local address"}.</p>{/if}
       <button on:click={saveAdv}>Save</button>
-      {#if advSaved}<p class="small muted" style="margin-top:6px">Saved: they apply when the node next starts.</p>{/if}
+      {#if advSaved}
+        <p class="small muted" style="margin-top:6px">Saved: they apply when the node next starts.
+          <button class="link" disabled={busy} on:click={async () => { await stop(); await start(); advSaved = false; }}>Restart the node now</button></p>
+      {/if}
     </div>
   {/if}
 </details>

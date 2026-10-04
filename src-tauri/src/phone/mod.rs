@@ -17,7 +17,7 @@ mod vectors;
 
 use crate::markets;
 use crate::node::{Node, RunState};
-use crate::trades::{Side, Status, Trades};
+use crate::trades::{Side, Trades};
 use crypto::{b64u, parse_pub, pub_b64u, Envelope};
 use nostr::{Event, NostrKey};
 use p256::{PublicKey, SecretKey};
@@ -36,7 +36,12 @@ pub const PAIR_SECS: u64 = 300;
 pub const SKEW_SECS: u64 = 300;
 /// How long answers are kept.
 pub const ANSWER_SECS: u64 = 24 * 3600;
-pub const MAX_PER_MINUTE: usize = 30;
+/// New requests a phone may make in a minute, and repeats (asking again under a known id), counted apart: ordinary
+/// use (Home, a market, a quote, their resends) stays well under both (UX review B2).
+pub const MAX_PER_MINUTE: usize = 120;
+pub const MAX_REPEATS_PER_MINUTE: usize = 120;
+/// "Busy" answers sent in a minute, at most: over-limit requests get one, so the phone can say so and ask again.
+const MAX_BUSY_PER_MINUTE: usize = 10;
 const MARKETS_PER_PAGE: usize = 25;
 /// Trades a phone may have waiting for the desktop at once, and waiting for their block (review M2, L7).
 pub const MAX_HELD: usize = 3;
@@ -508,19 +513,24 @@ impl Phone {
         let Ok(pt) = crypto::open_msg(&self.d, &p_pub, &env) else { return };
         let Ok(req) = serde_json::from_slice::<Value>(&pt) else { return };
         let Some(id) = req["id"].as_str().filter(|i| valid_id(i)).map(String::from) else { return };
-        // Repeats count against the rate too: each answer is an event published (review N11).
-        if !self.within_rate(&dev.np) {
-            return;
-        }
-        // A request already answered (or held) gets its answer again, whatever its time.
+        // A request already answered (or held) gets its answer again, whatever its time. Repeats have a rate of their
+        // own: each answer is an event published (review N11).
         let k = key(&dev.np, &id);
         let known = self.answers.lock().unwrap().get(&k).map(|a| a.reply.clone());
+        let known = known.or_else(|| self.reads.lock().unwrap().get(&k).map(|r| r.1.clone()));
         if let Some(r) = known {
-            return self.send(&p_pub, &dev.np, &r);
+            if self.within_rate(&format!("{}:repeat", dev.np), MAX_REPEATS_PER_MINUTE) {
+                self.send(&p_pub, &dev.np, &r);
+            }
+            return;
         }
-        let read = self.reads.lock().unwrap().get(&k).map(|r| r.1.clone());
-        if let Some(r) = read {
-            return self.send(&p_pub, &dev.np, &r);
+        // Over the rate, a new request isn't run: the phone is told (a few times a minute at most) and asks again.
+        if !self.within_rate(&dev.np, MAX_PER_MINUTE) {
+            if self.within_rate(&format!("{}:busy", dev.np), MAX_BUSY_PER_MINUTE) {
+                let r = json!({"re": id, "err": "Your computer is busy: ask again in a few seconds"});
+                self.send(&p_pub, &dev.np, &r);
+            }
+            return;
         }
         {
             let mut d = self.devices.lock().unwrap();
@@ -563,13 +573,13 @@ impl Phone {
         self.send(&p_pub, &dev.np, &reply);
     }
 
-    fn within_rate(&self, np: &str) -> bool {
+    fn within_rate(&self, key: &str, max: usize) -> bool {
         let mut r = self.rate.lock().unwrap();
-        let q = r.entry(np.to_string()).or_default();
+        let q = r.entry(key.to_string()).or_default();
         while q.front().is_some_and(|t| t.elapsed() > Duration::from_secs(60)) {
             q.pop_front();
         }
-        if q.len() >= MAX_PER_MINUTE {
+        if q.len() >= max {
             return false;
         }
         q.push_back(Instant::now());
@@ -656,12 +666,9 @@ impl Phone {
                 Ok(json!({"positions": items, "total_value": total}))
             }
             "balance" => {
-                let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
-                let _ = markets::refresh(&rpc, &self.trades).await;
-                let tied = markets::tied_up(&rpc, &self.trades).await;
-                let pending = self.trades.all().iter().filter(|t| t.status == Status::Pending).count();
-                Ok(json!({"total": b["total_sats"], "available": b["available_sats"], "in_pending_trades": tied,
-                          "pending_trades": pending}))
+                let b = crate::wallet::balance(&rpc, &self.trades).await?;
+                Ok(json!({"total": b.total_sats, "available": b.available_sats, "in_pending_trades": b.in_pending_trades_sats,
+                          "pending_trades": b.pending_trades, "withdrawing": b.withdrawing_sats}))
             }
             "quote" => {
                 let (id, outcome, shares, side) = trade_args(a)?;

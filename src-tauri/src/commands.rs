@@ -201,9 +201,42 @@ pub fn settings_advanced_set(st: St<'_>, a: Advanced) -> Result<(), String> {
 
 // --- markets ---
 
+#[derive(Serialize)]
+pub struct MarketRow {
+    #[serde(flatten)]
+    pub summary: MarketSummary,
+    /// The outcome with the highest chance, and that chance (UX review M4).
+    pub leading: Option<(String, f64)>,
+}
+
 #[tauri::command]
-pub async fn markets(st: St<'_>) -> Result<Vec<MarketSummary>, String> {
-    markets::list(&st.node.rpc_or_err()?).await
+pub async fn markets(st: St<'_>) -> Result<Vec<MarketRow>, String> {
+    let rpc = st.node.rpc_or_err()?;
+    let mut out = vec![];
+    for m in markets::list(&rpc).await? {
+        let leading = match markets::get(&rpc, &m.market_id).await {
+            Ok(v) => v["outcomes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|o| {
+                    let i = o["outcome_index"].as_u64()? as u32;
+                    markets::outcome(&v, i)
+                })
+                .max_by(|a, b| a.1.total_cmp(&b.1)),
+            Err(_) => None,
+        };
+        out.push(MarketRow { summary: m, leading });
+    }
+    Ok(out)
+}
+
+#[derive(Serialize)]
+pub struct DecisionView {
+    pub id: String,
+    pub question: String,
+    pub rules: String,
+    pub period: u64,
 }
 
 #[derive(Serialize)]
@@ -211,6 +244,11 @@ pub struct MarketDetail {
     pub market: Value,
     pub holdings: Vec<Holding>,
     pub height: u64,
+    /// The questions behind the market: how each is decided, and in which voting period (UX review M4).
+    pub decisions: Vec<DecisionView>,
+    pub current_period: u64,
+    pub blocks_per_period: Option<u64>,
+    pub testing: bool,
 }
 
 #[tauri::command]
@@ -219,7 +257,76 @@ pub async fn market(st: St<'_>, id: String) -> Result<MarketDetail, String> {
     let market = markets::get(&rpc, &id).await?;
     let holdings = markets::holdings(&rpc, &st.trades).await?.into_iter().filter(|h| h.market_id == id).collect();
     let height = rpc.public("getblockcount", json!([])).await.unwrap_or(0);
-    Ok(MarketDetail { market, holdings, height })
+    let mut decisions = vec![];
+    for d in market["dimensions"].as_array().into_iter().flatten() {
+        let Some(did) = d["decision_id"].as_str() else { continue };
+        let v: Value = rpc.public("decision_get", json!([did])).await.unwrap_or(Value::Null);
+        let info = &v["content"]["Decision"];
+        decisions.push(DecisionView {
+            id: did.into(),
+            question: info["header"].as_str().or(d["name"].as_str()).unwrap_or("").into(),
+            rules: info["description"].as_str().unwrap_or("").into(),
+            period: v["period_index"].as_u64().unwrap_or(0),
+        });
+    }
+    let s: Value = rpc.public("decision_status", json!([])).await.unwrap_or(Value::Null);
+    Ok(MarketDetail {
+        market,
+        holdings,
+        height,
+        decisions,
+        current_period: s["current_period"].as_u64().unwrap_or(0),
+        blocks_per_period: s["blocks_per_period"].as_u64(),
+        testing: s["is_testing_mode"].as_bool().unwrap_or(false),
+    })
+}
+
+#[derive(Serialize)]
+pub struct Settled {
+    pub market_id: String,
+    pub title: String,
+    pub summary: String,
+    /// What the shares the app's own trades left you held paid out, by the node's final prices.
+    pub paid_sats: u64,
+    pub shares: u64,
+}
+
+/// Settled markets the app traded in, and what they paid (UX review M2). The node pays out by itself; this works it
+/// out from the app's own record of trades and each market's final prices.
+#[tauri::command]
+pub async fn settled(st: St<'_>) -> Result<Vec<Settled>, String> {
+    let rpc = st.node.rpc_or_err()?;
+    let mut by_market: std::collections::BTreeMap<String, std::collections::BTreeMap<u32, i128>> = Default::default();
+    for t in st.trades.all().iter().filter(|t| t.status == crate::trades::Status::Done) {
+        let e = by_market.entry(t.market_id.clone()).or_default().entry(t.outcome).or_default();
+        *e += if t.side == Side::Buy { t.shares as i128 } else { -(t.shares as i128) };
+    }
+    let mut out = vec![];
+    for (id, held) in by_market {
+        let Ok(m) = markets::get(&rpc, &id).await else { continue };
+        if m["state"].as_str() != Some("settled") {
+            continue;
+        }
+        let price = |i: u32| -> f64 {
+            m["resolution"]["winning_outcomes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|w| w["outcome_index"].as_u64() == Some(i as u64))
+                .and_then(|w| w["price"].as_f64())
+                .unwrap_or(0.0)
+        };
+        let shares: u64 = held.values().map(|n| (*n).max(0) as u64).sum();
+        let paid = held.iter().map(|(i, n)| ((*n).max(0) as f64 * price(*i)).floor() as u64).sum();
+        out.push(Settled {
+            market_id: id,
+            title: m["title"].as_str().unwrap_or("").into(),
+            summary: m["resolution"]["summary"].as_str().unwrap_or("").into(),
+            paid_sats: paid,
+            shares,
+        });
+    }
+    Ok(out)
 }
 
 #[tauri::command]

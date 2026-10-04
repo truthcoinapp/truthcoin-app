@@ -91,9 +91,14 @@
   function periodName(i: number): string {
     if (!info) return `Period ${i}`;
     const ahead = i - info.current_period;
-    if (info.testing && info.blocks_per_period) return `Period ${i} (voting starts in about ${ahead * info.blocks_per_period} blocks)`;
-    return `Period ${i} (${ahead} quarter${ahead === 1 ? "" : "s"} after ${info.current_period_name})`;
+    if (info.testing && info.blocks_per_period) return `Period ${i}: in about ${ahead * info.blocks_per_period} blocks`;
+    return `Period ${i}: ${ahead} quarter${ahead === 1 ? "" : "s"} from now`;
   }
+  // Sats in a few characters: 69,315 · 693,148 · 6.9M.
+  function short(n: number): string {
+    return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M sats` : `${Math.round(n).toLocaleString("en-US")} sats`;
+  }
+  $: outcomeCount = kind === "category" ? Math.max(2, options.split("\n").filter((o) => o.trim()).length) : 2;
 </script>
 
 <button class="link back" on:click={() => dispatch("close")}>‹ Markets</button>
@@ -113,8 +118,8 @@
   <div class="field"><label for="r">How it will be decided</label><textarea id="r" rows="3" bind:value={rules} maxlength="2000" placeholder="The source voters should check, and what counts."></textarea></div>
   {#if kind === "binary"}
     <div class="row">
-      <div class="field" style="flex:1"><label for="nl">First answer</label><input id="nl" bind:value={noLabel} maxlength="60" /></div>
-      <div class="field" style="flex:1"><label for="yl">Second answer</label><input id="yl" bind:value={yesLabel} maxlength="60" /></div>
+      <div class="field" style="flex:1"><label for="yl">"Yes" answer</label><input id="yl" bind:value={yesLabel} maxlength="60" /></div>
+      <div class="field" style="flex:1"><label for="nl">"No" answer</label><input id="nl" bind:value={noLabel} maxlength="60" /></div>
     </div>
   {:else if kind === "category"}
     <div class="field"><label for="op">Options, one per line (2 to 16)</label><textarea id="op" rows="4" bind:value={options}></textarea></div>
@@ -129,14 +134,14 @@
     <label for="p">When voters decide</label>
     <select id="p" bind:value={period}>
       {#each info?.periods ?? [] as p}
-        <option value={p.period_index}>{periodName(p.period_index)} · listing {sats(p.cheapest_available_slot_sats)}</option>
+        <option value={p.period_index}>{periodName(p.period_index)}</option>
       {/each}
     </select>
   </div>
   <div class="field">
     <div class="small muted" style="margin-bottom:4px">Depth: in a deeper market each trade moves the price less, and you put in more</div>
     <div class="seg">
-      {#each DEPTHS as d}<button class:on={depth === d.beta} on:click={() => (depth = d.beta)}>{d.name}</button>{/each}
+      {#each DEPTHS as d}<button class:on={depth === d.beta} on:click={() => (depth = d.beta)}>{d.name} · {short(d.beta * Math.log(outcomeCount))}</button>{/each}
     </div>
   </div>
   <div class="row">
@@ -153,7 +158,12 @@
       <dt>Transaction fee</dt><dd>{sats(cost.tx_fee_sats)}</dd>
       <dt><strong>Total</strong></dt><dd><strong>{sats(cost.total_sats)}</strong></dd>
     </dl>
-    <p class="small muted" style="margin-top:8px">The market opens for trading with the next Truthcoin block.</p>
+    <p class="small muted" style="margin-top:8px">
+      The liquidity is what lets people trade at smoothly moving prices. When the market settles, what's left of it
+      after paying the winners comes back to you, and you earn the trading fees. It can all go to the winners if traders
+      call it right. The listing and transaction fees don't come back. The market opens for trading with the next
+      Truthcoin block.
+    </p>
     <div class="actions">
       <button class="primary" disabled={busy} on:click={create}>{#if busy}<span class="spin"></span>{/if} Create it</button>
       <button on:click={() => (cost = null)}>Change something</button>

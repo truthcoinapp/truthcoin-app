@@ -5,6 +5,7 @@
   import { api, errText, type PhoneInfo } from "../lib/api";
   import { num, parseWhole, sats, when } from "../lib/format";
   import QrCode from "./QrCode.svelte";
+  import { copy } from "../lib/copy";
 
   let info: PhoneInfo | null = null;
   let err = "";
@@ -15,6 +16,9 @@
   let relaysText = "";
   let page = "";
   let editingRelays = false;
+  let linkCopied = false;
+  let heldNote = "";
+  let removeAsk: string | null = null;
 
   async function load() {
     try {
@@ -58,11 +62,19 @@
   }
   async function held(id: string, approve: boolean) {
     try {
-      await api.heldAnswer(id, approve);
+      const r = await api.heldAnswer(id, approve);
+      heldNote = !approve ? "Refused: the phone is told." : r?.ok ? "Allowed: sent to the node." : r?.err ? `Not done: ${r.err}` : "Answered.";
+      setTimeout(() => (heldNote = ""), 6000);
       load();
     } catch (e) {
       err = errText(e);
     }
+  }
+  async function remove(np: string) {
+    if (removeAsk !== np) return void (removeAsk = np);
+    removeAsk = null;
+    await api.phoneRevoke(np).catch((e) => (err = errText(e)));
+    load();
   }
   async function setLimit(np: string) {
     const n = parseWhole(editLimit[np] ?? "");
@@ -92,6 +104,7 @@
   are there, renamed to end in <code>.bad-…</code>. Phone limits may have restarted from zero.
   <button class="link" on:click={() => api.recordsSeen().then(load)}>I've looked: let phones trade</button></div>{/if}
 
+{#if heldNote}<div class="notice ok">{heldNote}</div>{/if}
 {#if info?.held.length}
   <h3>Waiting for you</h3>
   {#each info.held as h}
@@ -113,12 +126,16 @@
       Pair a phone to see markets and your positions on it, and trade within a daily limit. It talks to this computer
       through public Nostr relays, sealed end to end; this app must be open for the phone to reach it.
     </p>
-    <button class="primary" on:click={startPair}>Pair a phone</button>
+    <button class:primary={!info?.devices.length} on:click={startPair}>{info?.devices.length ? "Pair another phone" : "Pair a phone"}</button>
   {:else if pair.state === "waiting"}
     <p>Scan this with the phone's camera. It opens the phone page, which pairs with this computer.</p>
     <div class="qr-wrap"><QrCode text={pairUrl} size={300} /></div>
     <p class="small muted"><span class="spin"></span> Waiting for the phone… (the code works for 5 minutes, once)</p>
-    <button on:click={endPair}>Cancel</button>
+    <div class="actions">
+      <button on:click={async () => { linkCopied = await copy(pairUrl); setTimeout(() => (linkCopied = false), 2500); }}>{linkCopied ? "Copied" : "Copy link"}</button>
+      <button on:click={endPair}>Cancel</button>
+    </div>
+    <p class="small muted">If the camera can't read the code, copy the link to your phone some private way and open it there.</p>
   {:else if pair.state === "claimed"}
     <p><strong>{pair.name}</strong> asks to pair. Allow it only if the phone shows this same code. If the phone shows no
       code, or a different one, refuse.</p>
@@ -149,16 +166,18 @@
           <div class="title">{d.name}</div>
           <div class="small muted">Paired {when(d.paired_at)} · last seen {when(d.last_seen)}</div>
           {#if editLimit[d.np] !== undefined}
-            <div class="row" style="margin-top:6px">
-              <input bind:value={editLimit[d.np]} inputmode="numeric" />
+            <label for="lim-{d.np}" style="margin-top:6px">Daily limit (sats)</label>
+            <div class="row">
+              <input id="lim-{d.np}" bind:value={editLimit[d.np]} inputmode="numeric" />
               <button on:click={() => setLimit(d.np)}>Save</button>
+              <button on:click={() => { delete editLimit[d.np]; editLimit = editLimit; }}>Cancel</button>
             </div>
           {:else}
             <div class="small">Daily limit {sats(d.limit_sats)} · {sats(d.left_sats)} left today
               <button class="link small" on:click={() => (editLimit[d.np] = String(d.limit_sats))}>Change</button></div>
           {/if}
         </div>
-        <button class="danger" on:click={() => api.phoneRevoke(d.np).then(load)}>Remove</button>
+        <button class="danger" on:click={() => remove(d.np)}>{removeAsk === d.np ? "Yes, remove it" : "Remove"}</button>
       </div>
     {/each}
   </div>

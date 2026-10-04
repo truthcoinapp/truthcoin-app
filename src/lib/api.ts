@@ -48,6 +48,9 @@ export interface WalletStatus {
   coins: number;
   in_pending_trades_sats: number;
   pending_trades: number;
+  incoming_sats: number;
+  withdrawing_sats: number;
+  recent_deposits: { time: number; amount_sats: number; txid: string }[];
 }
 
 export interface MarketSummary {
@@ -113,6 +116,14 @@ export interface MarketDetail {
   market: any;
   holdings: Holding[];
   height: number;
+  decisions: { id: string; question: string; rules: string; period: number }[];
+  current_period: number;
+  blocks_per_period: number | null;
+  testing: boolean;
+}
+
+export interface MarketRow extends MarketSummary {
+  leading: [string, number] | null;
 }
 
 export interface PhoneInfo {
@@ -170,7 +181,9 @@ export const api = {
     invoke<any>("withdraw", { address, amountSats, feeSats, mainchainFeeSats }),
   updateCheck: () => invoke<{ current: string; newer: string | null; url: string | null; note: string | null }>("update_check"),
   split: (parts: number) => invoke<any>("wallet_split", { parts }),
-  markets: () => invoke<MarketSummary[]>("markets"),
+  markets: () => invoke<MarketRow[]>("markets"),
+  settled: () => invoke<{ market_id: string; title: string; summary: string; paid_sats: number; shares: number }[]>("settled"),
+  ecashAddress: () => invoke<string>("ecash_address"),
   market: (id: string) => invoke<MarketDetail>("market", { id }),
   positions: () => invoke<Holding[]>("positions"),
   quote: (marketId: string, outcome: number, shares: number, side: Side) =>
