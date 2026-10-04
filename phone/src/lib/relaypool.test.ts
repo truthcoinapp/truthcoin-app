@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { messageEvent, newNostrSecret, type NostrEvent } from './nostr';
+import { messageEvent, newNostrSecret, nostrPub, type NostrEvent } from './nostr';
 import { RelayPool } from './relaypool';
 import { fakeWsFactory, tick, waitFor } from './testing/fakews';
 
@@ -179,13 +179,39 @@ describe('the relay pool', () => {
     await waitFor(() => f.sockets.length === 2, 3000);
   });
 
-  it('drops a relay that sends a frame over 256 KiB', () => {
+  it('ignores one oversize frame, and drops a relay that sends several within a minute', () => {
     const { pool, f } = setup([A], { penaltyMs: 60_000 });
     const a = f.last(A);
     a.open();
-    a.onmessage?.({ data: '["NOTICE","' + 'x'.repeat(300 * 1024) + '"]' });
+    const big = { data: '["NOTICE","' + 'x'.repeat(300 * 1024) + '"]' };
+    a.onmessage?.(big);
+    a.onmessage?.(big);
+    expect(a.readyState).toBe(1); // two: dropped unread, the relay stays
+    a.onmessage?.(big);
     expect(a.readyState).toBe(3);
     expect(pool.info()[0]).toMatchObject({ state: 'waiting', note: 'frame too big' });
+    pool.stop();
+  });
+
+  it("doesn't count strangers' events against a relay (anyone can address the phone)", () => {
+    const desk = newNostrSecret();
+    const deskPub = nostrPub(desk);
+    const { pool, f, got } = setup([A], {
+      budgetEvents: 5,
+      accept: (e) => (e as { pubkey?: string }).pubkey === deskPub,
+    });
+    const a = f.last(A);
+    a.open();
+    for (let i = 0; i < 60; i++) a.push(['EVENT', subOf(a), messageEvent(newNostrSecret(), me, `x${i}`, 1000 + i)]);
+    expect(a.readyState).toBe(1);
+    expect(pool.info()[0].state).toBe('open');
+    a.push(['EVENT', subOf(a), messageEvent(desk, me, 'real', 2000)]);
+    expect(got.map((e) => e.content)).toEqual(['real']);
+    // Forgeries claiming the desktop's key pass the cheap check: those count.
+    const real = messageEvent(desk, me, 'r', 3000);
+    for (let i = 0; i < 6; i++) a.push(['EVENT', subOf(a), { ...real, id: String(i).padStart(64, '0') }]);
+    expect(a.readyState).toBe(3);
+    expect(pool.info()[0].note).toBe('flooding');
     pool.stop();
   });
 

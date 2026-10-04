@@ -234,6 +234,34 @@ for (const [name, type] of engines) {
       }
     });
 
+    it('warns when no code has come, and after Cancel says the code is used', async () => {
+      errors = [];
+      shotsInTest = 0;
+      const desktop = await new TestDesktop({ relays: [relay.url], ws: nodeWs, allowAfterMs: 120_000 }).start();
+      desktop.withholdNonce = true;
+      try {
+        await page.goto(`${local.base}/#pair=${desktop.pairValue()}`);
+        await page.locator('#devname, [data-testid=homescreen-first]').first().waitFor();
+        if (await page.locator('[data-testid=homescreen-first]').count()) {
+          await page.getByRole('button', { name: 'Pair in this browser instead' }).click();
+        }
+        await page.getByRole('button', { name: 'Pair', exact: true }).click();
+        await page.getByTestId('pair-no-code-yet').waitFor();
+        await page.getByTestId('pair-no-code-warning').waitFor({ timeout: 15_000 });
+        expect(await page.getByTestId('pair-no-code-warning').textContent()).toContain(
+          "No code yet: don't allow anything on your computer until this phone shows one.",
+        );
+        await shot('pair-no-code');
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await page.getByTestId('pair-stopped').waitFor();
+        expect(await page.getByTestId('pair-stopped').textContent()).toContain('This code is used now');
+        await shot('pair-stopped');
+        expect(pageErrors(), errors.join('\n')).toEqual([]);
+      } finally {
+        desktop.stop();
+      }
+    });
+
     it('pairs through the relay, trades with a held buy, stays paired after a reload, and forgets', async () => {
       errors = [];
       shotsInTest = 0;

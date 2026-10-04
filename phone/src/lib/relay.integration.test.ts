@@ -230,6 +230,60 @@ describe('through a relay that repeats and reorders everything', () => {
     }
   });
 
+  it("gets the code even when the computer's first nonce message is lost (resends are sealed afresh)", async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws, allowAfterMs: 6000 }).start();
+    desktop.loseFirstNonce = true;
+    try {
+      const link = await parsePairValue(desktop.pairValue(), true);
+      let code = '';
+      let noCode = false;
+      const run = pairPhone(link, 'Lost N', {
+        ws,
+        onCode: (c) => (code = c),
+        onNoCode: () => (noCode = true),
+        noCodeAfterMs: 20_000,
+        resendAt: [300, 900, 2500, 4000],
+        probeEveryMs: 500,
+      });
+      await waitFor(() => code !== '', 10_000);
+      expect(code).toBe(desktop.lastCode);
+      expect(desktop.nonceSends).toBeGreaterThanOrEqual(2);
+      expect(desktop.contested).toBe(false);
+      expect(noCode).toBe(false);
+      await run;
+    } finally {
+      desktop.stop();
+    }
+  });
+
+  it('says so when no code has come after a while', async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws, allowAfterMs: 60_000 }).start();
+    desktop.withholdNonce = true;
+    try {
+      const link = await parsePairValue(desktop.pairValue(), true);
+      let noCode = false;
+      let gone = false;
+      const run = pairPhone(link, 'No N', { ws, onNoCode: () => (noCode = true), noCodeAfterMs: 1000, cancelled: () => gone });
+      await waitFor(() => noCode, 5000);
+      gone = true;
+      await expect(run).rejects.toThrow('cancelled');
+    } finally {
+      desktop.stop();
+    }
+  });
+
+  it('keeps nothing for a run cancelled before it started', async () => {
+    const desktop = await new TestDesktop({ relays: [url], ws }).start();
+    try {
+      const link = await parsePairValue(desktop.pairValue(), true);
+      let kept = 0;
+      await expect(pairPhone(link, 'X', { ws, keep: () => void kept++, cancelled: () => true })).rejects.toThrow('cancelled');
+      expect(kept).toBe(0);
+    } finally {
+      desktop.stop();
+    }
+  });
+
   it('asks the computer to forget this phone (unpair)', async () => {
     const desktop = await new TestDesktop({ relays: [url], ws }).start();
     try {

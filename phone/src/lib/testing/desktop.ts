@@ -174,8 +174,24 @@ export class TestDesktop {
   nonce: Bytes | null = null;
   /** Don't send N (a desktop from before the commitment, or N lost on every relay). */
   withholdNonce = false;
+  /** Lose the first nonce message only (every relay dropped it). */
+  loseFirstNonce = false;
+  /** Nonce messages sent for the claim, and when the last went (resends: at most every 2 s, 10 in all). */
+  nonceSends = 0;
+  private lastNonceAt = 0;
   /** Phones that asked to be forgotten (`unpair`). */
   readonly unpaired: string[] = [];
+
+  /** N to the claimant: at once for the claim, then for repeats at most every 2 s and 10 times in all. */
+  private async sendNonce(np: string, pPub: Bytes, first = false) {
+    if (!this.claim || !this.nonce || this.withholdNonce) return;
+    const now = Date.now();
+    if (!first && (now - this.lastNonceAt < 2000 || this.nonceSends >= 10)) return;
+    this.lastNonceAt = now;
+    this.nonceSends++;
+    if (first && this.loseFirstNonce) return; // "sent", and lost on every relay
+    await this.send(np, pPub, { re: this.claim.id, nonce: b64u(this.nonce) });
+  }
 
   private async onPair(e: NostrEvent, env: ReturnType<typeof parseEnvelope> & object) {
     let req: { t: string; p: string; np: string; name: string; id: string };
@@ -191,9 +207,7 @@ export class TestDesktop {
       // The live code opened again: by the same phone (a retry: the same N again), or by another key (someone else
       // saw the code).
       if (typeof req.p === 'string' && req.p !== this.claim.p) this.contested = true;
-      else if (req.p === this.claim.p && this.nonce && !this.withholdNonce) {
-        await this.send(e.pubkey, pubBytes(req.p), { re: this.claim.id, nonce: b64u(this.nonce) });
-      }
+      else if (req.p === this.claim.p) await this.sendNonce(e.pubkey, pubBytes(req.p));
       return;
     }
     if (req.t !== 'pair' || req.np !== e.pubkey || !isRequestId(req.id)) return;
@@ -202,7 +216,7 @@ export class TestDesktop {
     this.claim = { p: b64u(pPub), np: e.pubkey, id: req.id, name };
     this.nonce = randomBytes(16);
     this.lastCode = await pairCode(this.dPub, pPub, ePub, this.c, this.nonce);
-    if (!this.withholdNonce) await this.send(e.pubkey, pPub, { re: req.id, nonce: b64u(this.nonce) });
+    await this.sendNonce(e.pubkey, pPub, true);
     if (this.o.allowAfterMs) await new Promise((r) => setTimeout(r, this.o.allowAfterMs));
     this.codeLive = false; // allowing or refusing uses the code up
     if (this.contested || this.o.allow === false) {

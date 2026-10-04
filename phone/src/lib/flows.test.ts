@@ -5,7 +5,7 @@ import { envelopeJson, importPrivate, openMsg, padJson, parseEnvelope, pubBytes,
 import { TradeFlows } from './flows';
 import { PhoneLink, type Request } from './link';
 import { messageEvent, newNostrSecret, nostrPub, type NostrEvent } from './nostr';
-import { loadPending, memoryKv, type Kv } from './store';
+import { dropOtherPending, loadPending, memoryKv, savePending, type Kv } from './store';
 import { fakeWsFactory, waitFor } from './testing/fakews';
 
 const D = { s: '1111111111111111111111111111111111111111111111111111111111111111', p: 'BAIX5hfwtkQ5KCePlpmeaaI6TywVK99tbN9m5bgCgtTtGUp968uXcS0t2jyoWqh2Wlb0X8dYWZZS8ol8ZTBuV5Q' };
@@ -24,6 +24,7 @@ async function setup(kv: Kv = memoryKv(), nsec = newNostrSecret()) {
   const spy: Kv = {
     get: kv.get,
     del: kv.del,
+    keys: kv.keys,
     wipe: kv.wipe,
     set: async (k, v) => {
       order.push(`kept:${k}`);
@@ -61,6 +62,17 @@ async function setup(kv: Kv = memoryKv(), nsec = newNostrSecret()) {
   }
   return { flows, order, relay, requests, reply, kv, link, npub, nsec };
 }
+
+describe('waiting trades in storage', () => {
+  it("are dropped for every pairing but the current one's", async () => {
+    const kv = memoryKv();
+    await savePending(kv, 'aa'.repeat(32), []);
+    await savePending(kv, 'bb'.repeat(32), []);
+    await kv.set('pairing', { v: 1 });
+    await dropOtherPending(kv, 'bb'.repeat(32));
+    expect((await kv.keys()).sort()).toEqual(['pairing', `pending:${'bb'.repeat(32)}`]);
+  });
+});
 
 describe('trade flows', () => {
   it('keep a trade before it is first sent', async () => {

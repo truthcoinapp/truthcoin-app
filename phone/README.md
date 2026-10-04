@@ -47,8 +47,10 @@ go to `e2e/shots/<engine>/`.
 - **Asking again keeps the first `ts`**: a repeat is the same request (id, `ts`, args) sealed afresh.
 - **Pairing also probes with `status`** every 5 seconds, so a lost pairing answer doesn't leave the phone waiting.
 - **The comparison code includes the desktop's commitment nonce N** (`{"re","nonce"}`, sent after the phone's
-  request): the phone shows "Waiting for your computer…" until N comes, and resends keep the same P, nP and id, so
-  they get the same N. A yes that overtakes N waits up to 3 s for it.
+  request): the phone shows "Waiting for your computer…" until N comes. Until then it resends the request, each time
+  sealed afresh (a new event id; the same P, E, id and name), so the desktop's "same phone asks again" path sends the
+  same N again (at most every 2 s, 10 times). After 10 s without a code it says "No code yet: don't allow anything on
+  your computer until this phone shows one." A yes that overtakes N waits up to 3 s for it.
 - **`unsure` keeps a trade open** ("Not confirmed: check Positions before trying again", Ask again with the same id);
   `err` always means not done.
 - **Nullable fields** (`status.height`, `market.state`, `market.volume`, a trade's `txid`) and 0-based pages.
@@ -59,19 +61,23 @@ go to `e2e/shots/<engine>/`.
   fingerprint (as the desktop shows it in Settings › Phone), warn when it's a different computer from the one paired
   now, and say: "Only scan the code your own computer shows. Never use a pairing link someone sent you."
 - **Attempts:** one pairing code's keys (P, E, nP, the request id, the name, then N) are kept in IndexedDB only while
-  that pairing is under way, at most 5 minutes plus 30 s from when they were made. Leaving the pairing screen in any
-  way drops them (unloading the page doesn't). After a reload the page asks "Carry on pairing with the computer whose
-  key is …? [Carry on] [Stop]"; it never carries on by itself.
+  that pairing is under way, at most 5 minutes plus 30 s from when they were made, and never written once the run is
+  cancelled. Leaving the pairing screen in any way drops them (unloading the page doesn't). After a reload the page
+  asks "Carry on pairing with the computer whose key is …? [Carry on] [Stop]"; it never carries on by itself. Cancel
+  while waiting says "This code is used now: show a new one on your computer" (scanning it again would be a second
+  phone to the desktop), and a run cancelled just as the yes arrives ends cancelled.
 - **Confirming:** after the desktop's yes, nothing is kept until the person answers "Did your computer show <code>,
   and did you allow it there?" with "Yes, I allowed it". "No" keeps nothing and sends nothing more.
 - **Sessions:** pairing again stops the old session before anything is written; a stopped session writes nothing;
-  waiting trades are kept per pairing (`pending:<npub>`); the status reply's name, limit or relays are saved only over
-  the same pairing. Other tabs reload when one pairs or forgets (BroadcastChannel).
-- **Forget** asks the desktop to `unpair` (a few seconds, best effort), then deletes the whole IndexedDB database, and
-  says when either didn't work.
+  waiting trades are kept per pairing (`pending:<npub>`), and pairing drops every other pairing's list; the status
+  reply's name, limit or relays are saved only over the same pairing. Other tabs reload when one pairs or forgets (BroadcastChannel).
+- **Forget** asks the desktop to `unpair` (a few seconds, best effort), then deletes the whole IndexedDB database. No
+  answer to `unpair` reads as "Probably done… check Settings › Phone on your computer"; a failed delete is reported.
 - **Relays:** a repeat of an accepted event is dropped before anything else; a cheap check (kind, from the desktop,
-  to us) runs before the signature check; a relay sending more than 50 events in 10 s, or a frame over 256 KiB, is
-  dropped for 5 minutes; reconnect backoff starts over only after 30 s up.
+  to us) runs before the signature check. Strangers' events count for nothing (anyone can address the phone); a relay
+  passing on more than 50 events in 10 s that pass the cheap check, or more than 2 frames over 256 KiB in a minute,
+  is dropped for 5 minutes (a single oversize frame is just dropped). Reconnect backoff starts over only after 30 s
+  up.
 - **Framing:** inside another page's frame, the page shows "Open this page directly" and stops before reading the
   fragment or storage.
 - **CSP:** `default-src 'none'; script-src 'self'; style-src 'self'; connect-src wss:; img-src 'self' data:;

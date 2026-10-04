@@ -8,6 +8,7 @@ export interface Kv {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   del(key: string): Promise<void>;
+  keys(): Promise<string[]>;
   /** Delete everything kept (IndexedDB: the whole database). Rejects, with words for people, when it can't. */
   wipe(): Promise<void>;
 }
@@ -75,6 +76,7 @@ export function idbKv(name = 'truthcoin-phone'): Kv {
     get: <T>(key: string) => tx<T>('readonly', (s) => s.get(key)),
     set: async (key, value) => void (await tx('readwrite', (s) => s.put(value, key))),
     del: async (key) => void (await tx('readwrite', (s) => s.delete(key))),
+    keys: async () => ((await tx<IDBValidKey[]>('readonly', (s) => s.getAllKeys())) ?? []).map(String),
     wipe,
   };
 }
@@ -85,6 +87,7 @@ export function memoryKv(): Kv {
     get: async <T>(key: string) => m.get(key) as T | undefined,
     set: async (key, value) => void m.set(key, value),
     del: async (key) => void m.delete(key),
+    keys: async () => [...m.keys()],
     wipe: async () => m.clear(),
   };
 }
@@ -147,4 +150,9 @@ export async function savePending(kv: Kv, npub: string, list: PendingTrade[]): P
 
 export async function dropPending(kv: Kv, npub: string): Promise<void> {
   await kv.del(pendingKey(npub));
+}
+
+/** Every pairing's waiting trades but `npub`'s (left by earlier pairings, or written late by another tab). */
+export async function dropOtherPending(kv: Kv, npub: string): Promise<void> {
+  for (const k of await kv.keys()) if (k.startsWith('pending:') && k !== pendingKey(npub)) await kv.del(k);
 }

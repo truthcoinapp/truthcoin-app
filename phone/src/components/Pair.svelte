@@ -43,6 +43,7 @@
     | 'waiting'
     | 'confirm'
     | 'declined'
+    | 'stopped'
     | 'refused'
     | 'expired'
     | 'noanswer'
@@ -58,6 +59,8 @@
   let message = '';
   let code = resume?.code ?? '';
   let slow = false;
+  /** Waiting for a while with no code: nothing may be allowed on the computer yet. */
+  let noCode = false;
   let refusal = '';
   let pasted = '';
   let pasteError = '';
@@ -151,8 +154,18 @@
     message = '';
     code = '';
     slow = false;
+    noCode = false;
     yes = null;
     state = 'start';
+  }
+
+  /** Cancel while waiting: the computer has this phone's request, so the code is used. */
+  function cancelWaiting() {
+    drop();
+    code = '';
+    slow = false;
+    noCode = false;
+    state = 'stopped';
   }
 
   function stopResume() {
@@ -187,18 +200,23 @@
     const l = link;
     state = 'waiting'; // the request goes out at once; the code shows once the computer's nonce comes
     slow = false;
+    noCode = false;
     gone = false;
     try {
       const p = await pairPhone(l, cleanName(name), {
         attempt: kept,
+        // Only while this pairing is still under way: a step finishing after Cancel keeps nothing.
         keep: (a) => {
+          if (state !== 'waiting' || gone) return;
           kept = a;
           return saveAttempt(storage(), a);
         },
-        onCode: (c) => (code = c),
+        onCode: (c) => ((code = c), (noCode = false)),
+        onNoCode: () => (noCode = true),
         onSlow: () => (slow = true),
         cancelled: () => gone || state !== 'waiting',
       });
+      if (gone || state !== 'waiting') return; // cancelled meanwhile: the answer is ignored, nothing kept
       drop();
       yes = p;
       state = 'confirm';
@@ -357,6 +375,11 @@
       {:else}
         <p data-testid="pair-no-code-yet"><span class="spinner"></span> Waiting for your computer…</p>
         <p class="muted small">The code to compare appears here once your computer has the request.</p>
+        {#if noCode}
+          <p class="warn" data-testid="pair-no-code-warning">
+            <strong>No code yet: don't allow anything on your computer until this phone shows one.</strong>
+          </p>
+        {/if}
       {/if}
       <p class="small">The computer's key: <strong class="mono">{fingerprint}</strong></p>
       {#if slow}
@@ -364,7 +387,7 @@
       {:else if code}
         <p class="muted small"><span class="spinner"></span> Waiting for your computer. Keep this page open.</p>
       {/if}
-      <button class="full" on:click={again}>Cancel</button>
+      <button class="full" on:click={cancelWaiting}>Cancel</button>
     </div>
   {:else if state === 'confirm'}
     <div class="card stack" data-testid="pair-confirm">
@@ -386,6 +409,13 @@
     <div class="card stack bad" data-testid="pair-declined">
       <h2>Not paired</h2>
       <p>Nothing was kept on this phone. If your own computer lists it under Settings › Phone, remove it there.</p>
+      <button class="full" on:click={again}>Back</button>
+    </div>
+  {:else if state === 'stopped'}
+    <div class="card stack" data-testid="pair-stopped">
+      <h2>Pairing stopped</h2>
+      <p>This code is used now: show a new one on your computer (Settings › Phone), and scan that.</p>
+      <p class="muted small">If your computer is still asking “Allow this phone?”, refuse it.</p>
       <button class="full" on:click={again}>Back</button>
     </div>
   {:else if state === 'refused'}

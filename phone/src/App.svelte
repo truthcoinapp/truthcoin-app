@@ -15,7 +15,7 @@
     storage,
   } from './lib/session';
   import { attemptFor, type PairAttempt } from './lib/pairing';
-  import { dropAttempt, dropPending, loadAttempt, loadPairing, savePairing } from './lib/store';
+  import { dropAttempt, dropOtherPending, loadAttempt, loadPairing, savePairing } from './lib/store';
   import type { Market as MarketData, MarketSummary, Side } from './lib/validate';
   import Home from './components/Home.svelte';
   import LastLine from './components/LastLine.svelte';
@@ -118,10 +118,9 @@
 
   async function onPaired(e: CustomEvent<Pairing>) {
     const p = e.detail;
-    const old = $pairing;
     stopSession(); // first: the old session writes nothing from here on
     try {
-      if (old && old.npub !== p.npub) await dropPending(storage(), old.npub); // the old pairing's trades go with it
+      await dropOtherPending(storage(), p.npub); // earlier pairings' waiting trades go with them
       await savePairing(storage(), p);
       await dropAttempt(storage());
       loadError = '';
@@ -150,7 +149,7 @@
       loadError = '';
       notice = r.told
         ? ''
-        : "Your computer didn't confirm that it forgot this phone (is the app open there?). Remove the phone there too, under Settings › Phone.";
+        : "Probably done: your computer usually forgets this phone at once, but its answer didn't come back. Check Settings › Phone on your computer to be sure.";
     } catch (e) {
       loadError = `This phone's keys may still be here: ${(e as Error).message}`;
     }

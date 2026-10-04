@@ -256,7 +256,8 @@ export function refreshHome(o: { trades?: boolean } = {}): Promise<void> {
 
 /**
  * Forget this computer: ask the desktop to forget this phone too (best effort, a few seconds), stop, then delete the
- * page's whole database. `told` says whether the desktop confirmed. Rejects, with words for people, when the database
+ * page's whole database. `told` says whether the desktop's answer came back (without it, it has most likely still
+ * forgotten the phone: it keeps its relays up a few seconds after `unpair` so the answer can go out). Rejects, with words for people, when the database
  * couldn't be deleted (the session is stopped either way).
  */
 export async function forget(): Promise<{ told: boolean }> {

@@ -188,8 +188,15 @@ export interface PairOptions {
   slowAfterMs?: number;
   /** Wait at most this long after the attempt's time for a late answer. */
   graceMs?: number;
-  /** Send the request again at these times (relays may drop it; the same phone asking again gets the same N). */
+  /**
+   * Send the request again at these times while no code has come, each time sealed afresh (a new event id, the same
+   * P, E, id and name): relays may drop it, and the desktop's nonce message may be lost, and the same phone asking
+   * again gets the same N again.
+   */
   resendAt?: number[];
+  /** No code after this long: the person must not allow anything on the computer yet. */
+  onNoCode?: () => void;
+  noCodeAfterMs?: number;
   /**
    * Also ask for `status` this often, sealed from P as a paired phone would. The desktop drops these until it allows
    * the phone, then answers them: so a lost pairing answer doesn't leave the phone waiting for nothing.
@@ -216,6 +223,7 @@ export async function pairPhone(link: PairLink, name: string, o: PairOptions = {
   let a = attemptFor(o.attempt, link, now(), graceS);
   if (!a && now() >= link.x) throw new PairExpiredError('This pairing code has expired.');
   const keep = async (x: PairAttempt) => {
+    if (o.cancelled?.()) return; // a cancelled run keeps nothing (it may finish a step after the Cancel)
     try {
       await o.keep?.(x);
     } catch {
@@ -230,10 +238,14 @@ export async function pairPhone(link: PairLink, name: string, o: PairOptions = {
   const dPub = pubBytes(link.d);
   const c = fromB64u(link.c);
   const { pPriv, pPub, nsec, npub, id } = att;
-  // Sealed afresh each run (a new nonce, so a new event the relays pass on); the same P, E and id, so the same claim.
+  // Sealed afresh for every send (a new GCM nonce, so a new event id the desktop doesn't drop as a repeat); the same
+  // P, E, id and name, so the same claim and, from the desktop, the same N.
   const pt = padJson({ t: 'pair', p: b64u(pPub), np: npub, name: att.name, id });
-  const { env } = await sealPair({ dPub, c, e: { priv: att.ePriv, pub: att.ePub } }, pt);
-  const ev = messageEvent(nsec, link.n, envelopeJson(env), now());
+  const request = async (): Promise<NostrEvent> => {
+    const { env } = await sealPair({ dPub, c, e: { priv: att.ePriv, pub: att.ePub } }, pt);
+    return messageEvent(nsec, link.n, envelopeJson(env), now());
+  };
+  const first = await request();
   const keys: LinkKeys = { pPriv, pPub, dPub, nsec, npub, nd: link.n };
   if (att.code) o.onCode?.(att.code); // carrying on: N came before the reload
 
@@ -271,7 +283,9 @@ export async function pairPhone(link: PairLink, name: string, o: PairOptions = {
           async (r) => {
             if (!r || over) return;
             await nonceOrTimeout();
-            end(r);
+            // A run cancelled meanwhile ends as cancelled, whatever came (the watch only looks every 250 ms).
+            if (o.cancelled?.()) end(() => reject(new Error('cancelled')));
+            else end(r);
           },
           () => undefined,
         );
@@ -345,10 +359,22 @@ export async function pairPhone(link: PairLink, name: string, o: PairOptions = {
     }
 
     pool.start();
-    void pool.publish(ev);
-    for (const at of o.resendAt ?? [3_000, 10_000, 30_000, 60_000, 120_000]) {
-      timers.push(setTimeout(() => void pool.publish(ev), at));
+    void pool.publish(first);
+    for (const at of o.resendAt ?? [3_000, 6_000, 10_000, 15_000, 30_000, 60_000, 120_000]) {
+      timers.push(
+        setTimeout(() => {
+          if (over || att.code) return;
+          void request().then((ev) => {
+            if (!over) void pool.publish(ev);
+          });
+        }, at),
+      );
     }
+    timers.push(
+      setTimeout(() => {
+        if (!over && !att.code) o.onNoCode?.();
+      }, o.noCodeAfterMs ?? 10_000),
+    );
     timers.push(setTimeout(() => o.onSlow?.(), o.slowAfterMs ?? 25_000));
     probing = setInterval(() => void probe().catch(() => undefined), o.probeEveryMs ?? 5_000);
     const lastMs = Math.max(0, (attemptUntil(att, graceS) - now()) * 1000);

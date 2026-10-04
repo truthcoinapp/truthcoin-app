@@ -1,8 +1,10 @@
 // A small Nostr client (NIP-01) for the phone link: one WebSocket per relay, one subscription on each, every event
 // published to every relay. Relays are untrusted, and anyone can address events to the phone's key, so each incoming
 // event goes through the cheap checks first: a repeat of an event already accepted is dropped, then one that isn't
-// from the expected sender to us (`accept`), and only then is its id and signature checked. A relay that floods
-// (too many events, or a frame too big) is dropped for minutes. Dropped connections reconnect with backoff, and a
+// from the expected sender to us (`accept`), and only then is its id and signature checked. Strangers' events cost a
+// few comparisons and count for nothing; a relay that sends too many that do pass `accept` (they claim to be the
+// desktop's), or several oversize frames within a minute, is dropped for minutes. Anyone can address events to the
+// phone, so a budget over every event would let a stranger knock each honest relay out. Dropped connections reconnect with backoff, and a
 // relay that answers `OK false "rate-limited: …"` gets nothing more for a while. One working relay is enough.
 import { hex, randomBytes } from './bytes';
 import { verifyEvent, type NostrEvent } from './nostr';
@@ -62,17 +64,26 @@ export interface PoolOptions {
   /** The first pause after `OK false "rate-limited: …"`, ms (doubling up to a minute). */
   rateBackoffMs?: number;
   connectTimeoutMs?: number;
-  /** A relay sending more than `budgetEvents` events in `budgetWindowMs`, or a frame over 256 KiB, is dropped for
-   * `penaltyMs`. */
+  /** A relay passing on more than `budgetEvents` events that pass `accept` in `budgetWindowMs`, or more than
+   * `oversizeLimit` frames over 256 KiB in a minute, is dropped for `penaltyMs`. */
   budgetEvents?: number;
   budgetWindowMs?: number;
   penaltyMs?: number;
   /** The reconnect backoff starts over only after a connection has stayed up this long. */
   stableMs?: number;
+  oversizeLimit?: number;
 }
 
 const SEEN_MAX = 4096;
 const MAX_FRAME = 256 * 1024;
+
+/** Record one more occurrence now in `times` (pruned to `windowMs`); false when that makes more than `limit`. */
+function within(times: number[], windowMs: number, limit: number): boolean {
+  const now = Date.now();
+  times.push(now);
+  while (times.length && now - times[0] > windowMs) times.shift();
+  return times.length <= limit;
+}
 
 interface Outgoing {
   ev: NostrEvent;
@@ -90,6 +101,7 @@ class Relay {
   private connectTimer: ReturnType<typeof setTimeout> | undefined;
   private stableTimer: ReturnType<typeof setTimeout> | undefined;
   private eventTimes: number[] = [];
+  private oversizeTimes: number[] = [];
   /** Sitting out a penalty until then (ms): `kick` doesn't cut it short. */
   private penaltyUntil = 0;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -130,6 +142,7 @@ class Relay {
       this.state = 'open';
       this.note = '';
       this.eventTimes = [];
+      this.oversizeTimes = [];
       // A relay that accepts and closes at once keeps backing off; one that stays up starts afresh.
       this.stableTimer = setTimeout(() => {
         if (this.ws === ws && this.state === 'open') this.attempts = 0;
@@ -178,6 +191,15 @@ class Relay {
   }
 
   /** A relay over its budget: close it, and leave it alone for minutes. */
+  /** One more event that passed `accept` from this relay: false (and the relay dropped) when over its budget. */
+  withinBudget(): boolean {
+    if (!within(this.eventTimes, this.pool.budgetWindowMs, this.pool.budgetEvents)) {
+      this.penalize('flooding');
+      return false;
+    }
+    return true;
+  }
+
   private penalize(why: string) {
     this.pool.log(`${this.url}: ${why}; dropped for a while`);
     this.penaltyUntil = Date.now() + this.pool.penaltyMs;
@@ -230,7 +252,8 @@ class Relay {
   private message(data: unknown) {
     const text = typeof data === 'string' ? data : String(data);
     if (text.length > MAX_FRAME) {
-      this.penalize('frame too big');
+      // Dropped unread; only several within a minute drop the relay (one may be an honest relay passing on junk).
+      if (!within(this.oversizeTimes, 60_000, this.pool.oversizeLimit)) this.penalize('frame too big');
       return;
     }
     let m: unknown;
@@ -242,17 +265,9 @@ class Relay {
     if (!Array.isArray(m) || typeof m[0] !== 'string') return;
     const say = (s: unknown) => (typeof s === 'string' ? s.slice(0, 200) : '');
     switch (m[0]) {
-      case 'EVENT': {
-        const now = Date.now();
-        this.eventTimes.push(now);
-        while (this.eventTimes.length && now - this.eventTimes[0] > this.pool.budgetWindowMs) this.eventTimes.shift();
-        if (this.eventTimes.length > this.pool.budgetEvents) {
-          this.penalize('flooding');
-          return;
-        }
-        if (m[1] === this.sub) this.pool.incoming(m[2]);
+      case 'EVENT':
+        if (m[1] === this.sub) this.pool.incoming(m[2], this);
         break;
-      }
       case 'OK': {
         const item = typeof m[1] === 'string' ? this.inflight.get(m[1]) : undefined;
         if (!item) break;
@@ -341,6 +356,7 @@ export class RelayPool {
   readonly budgetWindowMs: number;
   readonly penaltyMs: number;
   readonly stableMs: number;
+  readonly oversizeLimit: number;
   private relays = new Map<string, Relay>();
   private seen = new Set<string>();
   private tallies = new Map<string, Tally>();
@@ -357,6 +373,7 @@ export class RelayPool {
     this.budgetWindowMs = opts.budgetWindowMs ?? 10_000;
     this.penaltyMs = opts.penaltyMs ?? 5 * 60_000;
     this.stableMs = opts.stableMs ?? 30_000;
+    this.oversizeLimit = opts.oversizeLimit ?? 2;
     for (const url of opts.relays) this.relays.set(url, new Relay(url, this));
   }
 
@@ -461,11 +478,13 @@ export class RelayPool {
    * An event a relay sent. Cheapest first: a repeat of one already accepted, then one we can't want (`accept`), then
    * its id and signature. Only a good one joins `seen`, so a forgery can't block the real event with its id.
    */
-  incoming(raw: unknown) {
+  incoming(raw: unknown, from?: Relay) {
     if (!raw || typeof raw !== 'object') return;
     const id = (raw as { id?: unknown }).id;
     if (typeof id === 'string' && this.seen.has(id)) return;
     if (this.opts.accept && !this.opts.accept(raw as { kind?: unknown; pubkey?: unknown; tags?: unknown })) return;
+    // Only events that pass the cheap checks count against the relay's budget (they claim to be the desktop's).
+    if (from && !from.withinBudget()) return;
     if (!verifyEvent(raw)) {
       this.log('dropped an event with a bad id or signature');
       return;
