@@ -1,6 +1,6 @@
 name: pages
 
-# The phone page, built from the tagged source and served by GitHub Pages at https://mblowes.github.io/truthcoin-app/.
+# The phone page, built from the tagged source and served by GitHub Pages at https://truthcoinapp.github.io/truthcoin-app/.
 # Settings, once: Pages > Source "GitHub Actions"; Environments > github-pages > Deployment branches and tags: add the
 # tag rule v* (by default only the default branch may deploy, and a tag's deploy is refused).
 # workflow_dispatch redeploys a tag (or, if that environment allows it, a branch).

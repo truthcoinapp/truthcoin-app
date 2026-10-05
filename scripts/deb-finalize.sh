@@ -28,7 +28,7 @@ arch=$(awk -F': ' '$1 == "Architecture" {print $2}' "$ctl")
 
 # Tauri already calls the package truthcoin-app (productName in kebab case); this keeps it so if productName changes.
 sed -i -e "s/^Package: .*/Package: $package/" "$ctl"
-grep -q '^Homepage:' "$ctl" || printf 'Homepage: https://github.com/mblowes/truthcoin-app\n' >> "$ctl"
+grep -q '^Homepage:' "$ctl" || printf 'Homepage: https://github.com/truthcoinapp/truthcoin-app\n' >> "$ctl"
 if grep -q '^ (none)$' "$ctl"; then
   sed -i -e 's/^ (none)$/ Runs a Truthcoin node and trades its prediction markets: see the markets, your balance\n and positions, buy and sell shares, and create markets, from the desktop or a paired phone./' "$ctl"
 fi

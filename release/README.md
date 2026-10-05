@@ -30,11 +30,11 @@ and `SHA256SUMS` must list the names as published.
    Put the same line in the README's "Verify your download" (below) in place of `ssh-ed25519 AAAA…`. Until the `.pub`
    is committed, every step except `scan` stops.
 
-2. **GitHub.** Create `mblowes/truthcoin-app`, add it as the remote `origin`, check that no commit holds private
+2. **GitHub.** Create `truthcoinapp/truthcoin-app`, add it as the remote `origin`, check that no commit holds private
    details, and push `main`:
 
    ```
-   git remote add origin git@github.com:mblowes/truthcoin-app.git
+   git remote add origin git@github.com:truthcoinapp/truthcoin-app.git
    release/release-app.sh 0.1.0 scan
    git push origin main
    ```
@@ -44,8 +44,8 @@ and `SHA256SUMS` must list the names as published.
    (or the history squashed) before the first push.
 
 3. **Settings on GitHub.**
-   - **Never enable Pages on any other repository under `mblowes`, and never create `mblowes/mblowes.github.io`:**
-     they would share the phone page's origin, and with it the phone's keys (VERIFY.md).
+   - **Never enable Pages on any other repository of the `truthcoinapp` organisation, and keep the organisation for
+     this app alone:** every Pages site there shares the phone page's origin, and with it the phone's keys (VERIFY.md).
    - Make the repository public before the first tag: GitHub records build attestations only for public
      repositories, and `check` requires them.
    - Pages: Settings > Pages > Source: **GitHub Actions**. Then Settings > Environments > `github-pages` >
@@ -109,5 +109,5 @@ Every release lists each file's SHA-256 in `SHA256SUMS`, signed with the Truthco
    (GitHub CLI 2.49 or later):
 
    ```
-   gh attestation verify <file> --repo mblowes/truthcoin-app
+   gh attestation verify <file> --repo truthcoinapp/truthcoin-app
    ```

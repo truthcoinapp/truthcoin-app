@@ -28,7 +28,7 @@ V=${1:?version, e.g. 0.1.0}
 STEP=${2:?scan, all, dry, release, check or after}
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)                                    # this repository
-REPO=mblowes/truthcoin-app
+REPO=truthcoinapp/truthcoin-app
 REMOTE=${TRUTHCOINAPP_REMOTE:-origin}                           # the git remote that is github.com/$REPO
 REF=${REF:-HEAD}                                                # the commit to release
 TAG=v$V
@@ -37,7 +37,7 @@ CACHE=${TRUTHCOINAPP_RELEASE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/truthcoin-ap
 WORK=${WORK:-$CACHE/release-$TAG}
 KEY=$HERE/truthcoinapp-release.pub                              # the release key's public half
 SIGNER=truthcoinapp-release
-PAGE=https://mblowes.github.io/truthcoin-app/
+PAGE=https://truthcoinapp.github.io/truthcoin-app/
 # The packages, as release.yml names them. Tauri's names have a space, which a GitHub release turns into a dot.
 DEB=truthcoin-app_${V}_amd64.deb
 APPIMAGE=Truthcoin-App_${V}_amd64.AppImage

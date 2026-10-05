@@ -1,7 +1,7 @@
 # Security
 
 Please report security problems privately, never in a public issue:
-[Report a vulnerability](https://github.com/mblowes/truthcoin-app/security/advisories/new) (the repository's Security
+[Report a vulnerability](https://github.com/truthcoinapp/truthcoin-app/security/advisories/new) (the repository's Security
 tab). Only you and the maintainers see it.
 
 A security problem is anything that could let someone else take coins from a wallet the app runs, act for a paired

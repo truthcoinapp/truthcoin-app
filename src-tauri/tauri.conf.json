@@ -31,7 +31,7 @@
   },
   "plugins": {
     "shell": {
-      "open": "https://(github\\.com/mblowes/truthcoin-app/(releases|issues/new|security/advisories/new)|github\\.com/LayerTwo-Labs/truthcoin-dc/releases|mblowes\\.github\\.io/truthcoin-app)([/?][A-Za-z0-9._~%/?=&#+-]*)?"
+      "open": "https://(github\\.com/truthcoinapp/truthcoin-app/(releases|issues/new|security/advisories/new)|github\\.com/LayerTwo-Labs/truthcoin-dc/releases|truthcoinapp\\.github\\.io/truthcoin-app)([/?][A-Za-z0-9._~%/?=&#+-]*)?"
     }
   },
   "bundle": {
@@ -49,7 +49,7 @@
         "bundleMediaFramework": false
       }
     },
-    "homepage": "https://github.com/mblowes/truthcoin-app",
+    "homepage": "https://github.com/truthcoinapp/truthcoin-app",
     "publisher": "The Truthcoin App developers",
     "copyright": "Copyright (c) 2026 The Truthcoin App developers",
     "license": "MIT",

@@ -10,7 +10,7 @@
 set -eu
 V=${1:?version tag, e.g. v0.1.0}
 WANT=${2:-}
-R=mblowes/truthcoin-app
+R=truthcoinapp/truthcoin-app
 ID=truthcoinapp-release
 K=${TRUTHCOINAPP_RELEASE_KEY:-$HOME/.ssh/truthcoinapp-release}
 HERE=$(cd "$(dirname "$0")" && pwd)

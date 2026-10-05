@@ -26,7 +26,7 @@ describe('the #pair= fragment', () => {
 describe('pairing values in scanned or pasted text', () => {
   const value = 'eyJ2IjoxfQ' + 'A'.repeat(60);
   it('come from a whole link', () => {
-    expect(pairValueFrom(`https://mblowes.github.io/truthcoin-app/#pair=${value}`)).toBe(value);
+    expect(pairValueFrom(`https://truthcoinapp.github.io/truthcoin-app/#pair=${value}`)).toBe(value);
     expect(pairValueFrom(`  http://127.0.0.1:4174/#pair=${value}\n`)).toBe(value);
   });
   it('or from the bare value', () => {

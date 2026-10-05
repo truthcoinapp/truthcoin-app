@@ -13,7 +13,7 @@ pub const DEFAULT_RELAYS: [&str; 3] = ["wss://relay.damus.io", "wss://nos.lol", 
 pub const BETA_ONLY: bool = !cfg!(debug_assertions);
 
 /// The phone page, built from this repository's tagged source by GitHub Pages.
-pub const DEFAULT_PHONE_PAGE: &str = "https://mblowes.github.io/truthcoin-app/";
+pub const DEFAULT_PHONE_PAGE: &str = "https://truthcoinapp.github.io/truthcoin-app/";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]

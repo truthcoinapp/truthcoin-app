@@ -171,7 +171,7 @@ jobs:
 
           `SHA256SUMS` lists every file's SHA-256 and `SHA256SUMS.sig` is its signature by the Truthcoin App release
           key; the README's "Verify your download" shows how to check both. GitHub also records a build attestation
-          for each package: `gh attestation verify <file> --repo mblowes/truthcoin-app`.
+          for each package: `gh attestation verify <file> --repo truthcoinapp/truthcoin-app`.
           EOF
           } > "$notes"
           cd out

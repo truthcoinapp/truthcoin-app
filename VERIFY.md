@@ -14,7 +14,7 @@ is written for you, or for an AI assistant you ask to review it (a prompt is bel
 ## Step 1: get the source at the release tag
 
 ```sh
-git clone https://github.com/mblowes/truthcoin-app && cd truthcoin-app
+git clone https://github.com/truthcoinapp/truthcoin-app && cd truthcoin-app
 git checkout v<version>
 ```
 
@@ -68,7 +68,7 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
 **Every network contact:**
 - The node's RPC and the enforcer's gRPC, on this computer (or where Settings › Advanced points).
 - `github.com` (and its download host): the node's release, when you press Install.
-- `api.github.com/repos/mblowes/truthcoin-app/releases/latest` and that release's `SHA256SUMS` and `SHA256SUMS.sig`:
+- `api.github.com/repos/truthcoinapp/truthcoin-app/releases/latest` and that release's `SHA256SUMS` and `SHA256SUMS.sig`:
   only when you press "Check for a newer version" (`src-tauri/src/update.rs`).
 - The Nostr relays in Settings › Phone (three public ones by default), over `wss://`, only while a phone is paired
   or pairing is under way (`src-tauri/src/phone/relays.rs`).
@@ -139,8 +139,8 @@ Give your assistant the checked-out tree and something like this:
   workflow, the tag and each package's hash:
 
   ```sh
-  gh attestation verify truthcoin-app_<version>_amd64.deb --repo mblowes/truthcoin-app \
-    --signer-workflow mblowes/truthcoin-app/.github/workflows/release.yml --source-ref refs/tags/v<version>
+  gh attestation verify truthcoin-app_<version>_amd64.deb --repo truthcoinapp/truthcoin-app \
+    --signer-workflow truthcoinapp/truthcoin-app/.github/workflows/release.yml --source-ref refs/tags/v<version>
   ```
 
 ## Step 4: rebuild the Linux package yourself
@@ -160,7 +160,7 @@ build/linux/rebuild.sh v<version>      # prints the hashes; compare them with SH
   unencrypted.
 - **The phone page** is served by GitHub Pages from this repository's tagged source (`.github/workflows/pages.yml`);
   whoever controls those files controls what the page shows and asks, within the phone's limit. Its origin,
-  `https://mblowes.github.io`, is shared by every Pages site of the `mblowes` account, and the phone's keys live in
-  that origin's storage: so no other repository under `mblowes` may enable Pages, and `mblowes/mblowes.github.io`
-  must never exist. (Moving the page to an origin of its own later would make every phone pair again.)
+  `https://truthcoinapp.github.io`, belongs to the `truthcoinapp` organisation, which holds only this app, and the
+  phone's keys live in that origin's storage: so only this app's pages may ever be served there (no other Pages site
+  in the organisation). Moving the page to another origin later would make every phone pair again.
 - **eCash, the enforcer and BitWindow** are not covered here.

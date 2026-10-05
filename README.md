@@ -24,7 +24,7 @@ are trading in it.
 
 ## Install
 
-Download the package for your computer from [Releases](https://github.com/mblowes/truthcoin-app/releases):
+Download the package for your computer from [Releases](https://github.com/truthcoinapp/truthcoin-app/releases):
 
 - **Debian or Ubuntu:** `truthcoin-app_<version>_amd64.deb` (`sudo apt install ./truthcoin-app_<version>_amd64.deb`).
 - **Other Linux:** `Truthcoin-App_<version>_amd64.AppImage` (make it executable, then run it).
@@ -63,7 +63,7 @@ Check your download first: [Verify your download](#verify-your-download).
 ## Your phone
 
 The **Phone** tab › **Pair a phone** shows a QR code. Scan it with the phone's camera: it opens the phone page
-(`https://mblowes.github.io/truthcoin-app/`, built from this repository's tagged source), which pairs with the app.
+(`https://truthcoinapp.github.io/truthcoin-app/`, built from this repository's tagged source), which pairs with the app.
 Both screens then show the same six-digit code: allow the phone only if they match.
 
 A paired phone can see markets, positions and balance, get prices, trade within its daily limit (a buy counts at its
@@ -101,7 +101,7 @@ The release key (also in [`release/truthcoinapp-release.pub`](release/truthcoina
 echo "truthcoinapp-release <the key above>" > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I truthcoinapp-release -n truthcoinapp-sums -s SHA256SUMS.sig < SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
-gh attestation verify <package> --repo mblowes/truthcoin-app
+gh attestation verify <package> --repo truthcoinapp/truthcoin-app
 ```
 
 The app's own "Check for a newer version" (Settings) trusts only a release whose `SHA256SUMS` carries that

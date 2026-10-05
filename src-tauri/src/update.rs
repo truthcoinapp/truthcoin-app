@@ -11,9 +11,9 @@ pub const RELEASE_KEY: &str = env!("TRUTHCOINAPP_RELEASE_KEY");
 /// The signature's purpose, made with `ssh-keygen -Y sign -n truthcoinapp-sums`: a file signed with the same key for
 /// anything else doesn't pass (review N7).
 pub const NAMESPACE: &str = "truthcoinapp-sums";
-const DOWNLOADS: &str = "https://github.com/mblowes/truthcoin-app/releases/download/";
-const RELEASE_PAGES: &str = "https://github.com/mblowes/truthcoin-app/releases/tag/";
-const LATEST: &str = "https://api.github.com/repos/mblowes/truthcoin-app/releases/latest";
+const DOWNLOADS: &str = "https://github.com/truthcoinapp/truthcoin-app/releases/download/";
+const RELEASE_PAGES: &str = "https://github.com/truthcoinapp/truthcoin-app/releases/tag/";
+const LATEST: &str = "https://api.github.com/repos/truthcoinapp/truthcoin-app/releases/latest";
 
 pub fn verify_with(key: &str, sums: &[u8], sig: &[u8]) -> Result<(), &'static str> {
     let key = PublicKey::from_openssh(key).map_err(|_| "the release key doesn't parse")?;
@@ -131,8 +131,8 @@ mod tests {
 
     #[test]
     fn urls_stay_in_the_repository() {
-        assert!(pinned("https://github.com/mblowes/truthcoin-app/releases/tag/v0.1.1", RELEASE_PAGES));
-        assert!(!pinned("https://github.com/mblowes/truthcoin-app/releases/tag/../../../x/y", RELEASE_PAGES));
+        assert!(pinned("https://github.com/truthcoinapp/truthcoin-app/releases/tag/v0.1.1", RELEASE_PAGES));
+        assert!(!pinned("https://github.com/truthcoinapp/truthcoin-app/releases/tag/../../../x/y", RELEASE_PAGES));
         assert!(!pinned("https://github.com/other/repo/releases/download/v1/SHA256SUMS", DOWNLOADS));
     }
 

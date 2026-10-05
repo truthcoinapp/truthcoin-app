@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Truthcoin App: run a Truthcoin node and trade its prediction markets, from the desktop or a paired phone"
 authors = ["The Truthcoin App developers"]
 license = "MIT"
-repository = "https://github.com/mblowes/truthcoin-app"
+repository = "https://github.com/truthcoinapp/truthcoin-app"
 edition = "2021"
 
 [build-dependencies]
