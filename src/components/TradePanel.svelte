@@ -104,7 +104,7 @@
   {:else}
     <div class="field">
       <label for="sh">Shares{side === "sell" ? ` (you hold ${num(held)})` : ""}</label>
-      <input id="sh" bind:value={shares} inputmode="numeric" placeholder={side === "sell" ? `up to ${num(held)}` : "50,000"} on:input={() => (quote = null)} disabled={busy} />
+      <input id="sh" bind:value={shares} inputmode="numeric" placeholder={side === "sell" ? `up to ${num(held)}` : ""} on:input={() => (quote = null)} disabled={busy} />
     </div>
     {#if err}
       <div class="notice error">{err}</div>

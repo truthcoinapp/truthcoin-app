@@ -98,7 +98,8 @@
 
   async function deposit() {
     const a = parseWhole(depAmount), f = parseWhole(depFee);
-    if (!(a > 0) || !(f > 0)) return (panelErr = "Give the amount and the eCash fee in sats");
+    if (!(a > 0)) return (panelErr = "Type how many sats to deposit");
+    if (!(f > 0)) return (panelErr = "Give the eCash fee in sats");
     if (!depConfirm) return void (depConfirm = true);
     depConfirm = false;
     busy = true;
@@ -144,7 +145,8 @@
   async function withdraw() {
     const a = parseWhole(wAmount), f = parseWhole(wFee), m = parseWhole(wMainFee);
     if (!looksLikeEcash(wAddr)) return (panelErr = "That isn't an eCash address. In BitWindow, Receive gives you one, or use \"Send to BitWindow's eCash wallet\" above.");
-    if (!(a > 0) || !(f >= 0) || !(m >= 0)) return (panelErr = "Give the amount and the fees in sats");
+    if (!(a > 0)) return (panelErr = "Type how many sats to withdraw");
+    if (!(f >= 0) || !(m >= 0)) return (panelErr = "Give the fees in sats");
     if (!wConfirm) return void ((wConfirm = true), (panelErr = ""));
     wConfirm = false;
     busy = true;
@@ -270,7 +272,7 @@
         From BitWindow's eCash wallet: {sats(dep.confirmed_sats)} available{dep.pending_sats ? `, ${sats(dep.pending_sats)} pending` : ""}{dep.synced ? "" : " (still syncing)"}.
         The coins arrive here after the deposit's eCash block and the Truthcoin block after it.
       </p>
-      <div class="field"><label for="da">Amount (sats)</label><input id="da" bind:value={depAmount} inputmode="numeric" placeholder="100,000" on:input={() => (depConfirm = false)} /></div>
+      <div class="field"><label for="da">Amount (sats)</label><input id="da" bind:value={depAmount} inputmode="numeric" on:input={() => (depConfirm = false)} /></div>
       <div class="field"><label for="df">eCash fee (sats)</label><input id="df" bind:value={depFee} inputmode="numeric" on:input={() => (depConfirm = false)} /></div>
       {#if depConfirm}
         <div class="notice warn">

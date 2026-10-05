@@ -531,3 +531,11 @@ input[type="checkbox"] {
     transform: rotate(360deg);
   }
 }
+
+/* An example in an empty field must never pass for a value (on macOS, "100,000" read as a typed amount). */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-2);
+  opacity: 0.6;
+  font-style: italic;
+}
