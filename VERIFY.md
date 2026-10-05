@@ -5,8 +5,9 @@ is written for you, or for an AI assistant you ask to review it (a prompt is bel
 
 ## What you can and cannot check
 
-- **You can** read the source at the release's tag, check the release's signature and GitHub's build attestation,
-  and rebuild the Linux program and `.deb` yourself to compare them byte for byte.
+- **You can** check that the release's tag is signed with the release key, read the source at that tag, check the
+  release's signature and GitHub's build attestation, and rebuild the Linux program and `.deb` yourself to compare
+  them byte for byte.
 - **You trust** L2L's Truthcoin node, which the app downloads and runs (it checks the download against a pinned
   hash, so it runs only the build this source names), GitHub's Mac builders for the macOS app, and the operating
   system and webview you run it on.
@@ -15,8 +16,16 @@ is written for you, or for an AI assistant you ask to review it (a prompt is bel
 
 ```sh
 git clone https://github.com/truthcoinapp/truthcoin-app && cd truthcoin-app
+echo "truthcoinapp-release ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJk2LAjNIvDL/n+UaAQZqfl6rNGGI+8Z9yQ6Nftro2b5" > allowed_signers
+git -c gpg.ssh.allowedSignersFile=allowed_signers verify-tag v<version>
 git checkout v<version>
 ```
+
+`verify-tag` must say `Good "git" signature for truthcoinapp-release` (git 2.34 or later). The tag is signed with the
+same release key as the release's `SHA256SUMS` (README, [Verify your download](README.md#verify-your-download)), so
+the commit you review is the one the release names, and the packages are tied to it by the attestation (step 3) and
+the rebuild (step 4). Take the key from somewhere you trust: this file, and if you can a copy you got earlier (an
+earlier release, or an announcement), since whoever could change this repository could change the key shown here too.
 
 ## Step 2: review the source
 

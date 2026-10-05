@@ -1,8 +1,9 @@
 # Releasing the Truthcoin App
 
-A tag `vX.Y.Z` makes GitHub build the Linux and macOS packages (`.github/workflows/release.yml`) and leave them in a
-**draft** release with `SHA256SUMS`. The draft is published only after you have signed `SHA256SUMS` with the release
-key. `release-app.sh` drives every step and checks GitHub's work; you only sign.
+A tag `vX.Y.Z`, which you sign with the release key, makes GitHub build the Linux and macOS packages
+(`.github/workflows/release.yml`) and leave them in a **draft** release with `SHA256SUMS`. The draft is published only
+after you have signed `SHA256SUMS` with the same key. `release-app.sh` drives every step and checks GitHub's work; you
+only sign: the tag, then `SHA256SUMS`.
 
 The packages of release `X.Y.Z`:
 
@@ -58,13 +59,23 @@ and `SHA256SUMS` must list the names as published.
 2. `release/release-app.sh X.Y.Z dry`: pushes the commit to branch `release-vX.Y.Z` and runs the release workflow
    there (it builds everything and publishes nothing), then rebuilds the `.deb` here in Docker (`JOBS=2`) and
    compares it with GitHub's.
-3. `release/release-app.sh X.Y.Z release`: tags `vX.Y.Z`, pushes it (and `main` if it doesn't hold the commit yet),
-   watches the build, then runs `check`. The tag also deploys the phone page (`pages.yml`).
-   (`release/release-app.sh X.Y.Z all` does 2 and 3 in one go.)
-4. `check` (step 3 runs it; run it again any time): the draft holds exactly the four packages and `SHA256SUMS`,
+3. Sign the tag, on the machine with the key (it asks for the key's passphrase):
+
+   ```
+   release/sign-tag.sh vX.Y.Z
+   ```
+
+   It tags the commit the dry run built and checked, signed with the release key (git's SSH signing), checks the
+   signature against `release/truthcoinapp-release.pub`, and pushes nothing. Anyone can then check that the source they
+   review is the release's (VERIFY.md, step 1).
+4. `release/release-app.sh X.Y.Z release`: checks that the tag is at the dry run's commit and signed by the release
+   key (it never makes a tag itself), pushes it (and `main` if it doesn't hold the commit yet), watches the build,
+   then runs `check`. The tag also deploys the phone page (`pages.yml`).
+   (`release/release-app.sh X.Y.Z all` runs 2 and then 4; it stops after 2 until the tag is signed.)
+5. `check` (step 4 runs it; run it again any time): the draft holds exactly the four packages and `SHA256SUMS`,
    each matches it and has a build attestation from `release.yml` at the tag, the `.deb` equals your rebuild, and
    the Mac app is this version alone. It ends by printing the signing command, with the checked file's sha256.
-5. Sign, on the machine with the key:
+6. Sign `SHA256SUMS`, on the machine with the key:
 
    ```
    release/sign-sums.sh vX.Y.Z <sha256 that check printed>
@@ -72,9 +83,9 @@ and `SHA256SUMS` must list the names as published.
 
    It signs only the `SHA256SUMS` that `check` verified, checks the signature against `release/truthcoinapp-release.pub`,
    and uploads `SHA256SUMS.sig` to the draft.
-6. `release/release-app.sh X.Y.Z after`: checks the signature again, over the file `check` verified, and that the
-   phone page's deploy from the tag is green; then publishes the draft as the latest release, and checks that
-   GitHub serves the signed `SHA256SUMS`.
+7. `release/release-app.sh X.Y.Z after`: checks the signature again, over the file `check` verified, that GitHub's
+   tag is still the signed one, and that the phone page's deploy from the tag is green; then publishes the draft as
+   the latest release, and checks that GitHub serves the signed `SHA256SUMS`.
 
 The scripts keep their work files in `~/.cache/truthcoin-app-release/` (`TRUTHCOINAPP_RELEASE_CACHE`), outside the
 repository. Other settings: `REF` (the commit to release, default `HEAD`), `TRUTHCOINAPP_REMOTE` (default `origin`),

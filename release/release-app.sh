@@ -4,14 +4,16 @@
 #
 #   scan     nothing leaves this machine: the commits a push would publish (all of them, the first time) hold no
 #            private details, in their files or their messages. dry runs it too.
-#   all      dry, then release: the whole build in one command, up to the signature. It stops at the first failure.
+#   all      dry, then release: the whole build in one command, up to the signature, when the operator's signed tag
+#            exists already (otherwise it stops after dry, saying so). It stops at the first failure.
 #   dry      the commit (REF, default HEAD) has the version everywhere, its release notes and the release key, and
 #            passes scan; it goes to branch release-v<version> on GitHub, where release.yml builds every package and
 #            publishes nothing (no tag, no release); watch the run; rebuild the Linux .deb here from the same commit in
 #            the pinned image (build/linux/rebuild.sh) and compare it byte for byte with GitHub's.
-#   release  after a green dry run of that commit: tag v<version>, push it (and main, when main doesn't hold the
-#            commit yet); release.yml builds again and leaves a draft release; pages.yml deploys the phone page from the
-#            tag; watch the release run; then check.
+#   release  after a green dry run of that commit, and once the operator has tagged it (sign-tag.sh v<version>: the tag
+#            is signed with the release key, and checked here against the key pinned in release/): push the tag (and
+#            main, when main doesn't hold the commit yet); release.yml builds again and leaves a draft release;
+#            pages.yml deploys the phone page from the tag; watch the release run; then check.
 #   check    the draft release: exactly the four packages and SHA256SUMS; every package matches SHA256SUMS and has a
 #            GitHub build attestation from release.yml at the tag; the .deb equals the dry run's rebuild; the Mac app
 #            (.app.tar.gz) holds Truthcoin App.app at this version and nothing else.
@@ -66,6 +68,20 @@ need_key() {
 
 # allowed_signers for ssh-keygen -Y verify: the release key under its identity.
 allowed_signers() { awk -v id="$SIGNER" 'NR == 1 {print id, $1, $2}' "$KEY"; }
+
+# Tag $TAG, here or on GitHub (ref $1), is an annotated tag at commit $2 signed by the release key (git's SSH signing,
+# namespace "git"). A tag signed by any other key, or not signed, fails: minTrustLevel=fully also refuses a good
+# signature by a key that isn't the release key, on any git that would otherwise let it pass.
+signed_tag() {
+    local ref=$1 sha=$2 at
+    at=$(git rev-parse -q --verify "$ref^{commit}") || return 1
+    [ "$at" = "$sha" ] || die "tag $TAG is at ${at:0:12}, not ${sha:0:12}"
+    [ "$(git cat-file -t "$ref")" = tag ] || die "tag $TAG isn't an annotated tag, so it can't be signed"
+    mkdir -p "$WORK"
+    allowed_signers >"$WORK/allowed_signers"
+    git -c gpg.ssh.allowedSignersFile="$WORK/allowed_signers" -c gpg.minTrustLevel=fully verify-tag "$ref" >/dev/null 2>&1 \
+        || die "tag $TAG isn't signed by the release key ($KEY)"
+}
 
 # The remote is github.com/$REPO, and is fetched.
 remote_ok() {
@@ -178,22 +194,20 @@ release() {
     sha=$(commit)
     [ -f "$WORK/dry.commit" ] && [ "$(cat "$WORK/dry.commit")" = "$sha" ] \
         || die "no dry run of ${sha:0:12} here: run $0 $V dry first"
-    git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG exists already here"
     git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$TAG" >/dev/null && die "tag $TAG exists already on GitHub"
     head=$(git rev-parse -q --verify "refs/remotes/$REMOTE/$BR") || die "no $BR on GitHub: run dry first"
     [ "$head" = "$sha" ] || die "$BR on GitHub is at ${head:0:12}, not ${sha:0:12}: run dry again"
     ok=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BR" --limit 1 --json headSha,conclusion \
         -q ".[0] | select(.headSha == \"$sha\") | .conclusion")
     [ "$ok" = success ] || die "the last dry run of $BR at ${sha:0:12} isn't green (got: ${ok:-none})"
-    git tag -a "$TAG" -m "Truthcoin App $TAG" "$sha"
+    # The operator's tag, signed with the release key: this script never makes the tag itself.
+    signed_tag "refs/tags/$TAG" "$sha" || die "no tag $TAG here yet: the operator signs it ($HERE/sign-tag.sh $TAG), then: $0 $V release"
     refs+=("refs/tags/$TAG")
     # main gets the commit unless it holds it already; a main that has moved elsewhere refuses the push.
     git merge-base --is-ancestor "$sha" "refs/remotes/$REMOTE/main" || refs+=("$sha:refs/heads/main")
     since=$(now)
-    if ! git push -q --atomic "$REMOTE" "${refs[@]}"; then
-        git tag -d "$TAG" >/dev/null
-        die "the push failed, nothing was pushed (has main moved? then make the release commit on top of it and run dry again)"
-    fi
+    git push -q --atomic "$REMOTE" "${refs[@]}" \
+        || die "the push failed, nothing was pushed (has main moved? then make the release commit on top of it and run dry again)"
     echo "Tagged $TAG at ${sha:0:12} and pushed ${refs[*]}."
     id=$(new_run "$TAG" "$since")
     watch_run "$id"
@@ -310,6 +324,10 @@ after() {
         || die "GitHub's SHA256SUMS isn't the one check verified: don't publish this release until that's explained"
     git show "$TAG:release/truthcoinapp-release.pub" 2>/dev/null | cmp -s - "$KEY" \
         || die "$TAG doesn't hold the release key that is here ($KEY)"
+    # The tag as GitHub has it (fetched by remote_ok) is still the operator's signed one.
+    signed_tag "refs/tags/$TAG" "$(git rev-parse "$TAG^{commit}")" || die "no tag $TAG here"
+    git ls-remote --tags "$REMOTE" "refs/tags/$TAG" | grep -q "^$(git rev-parse "refs/tags/$TAG")" \
+        || die "GitHub's tag $TAG isn't the signed tag here"
     allowed_signers >"$WORK/sig/allowed_signers"
     ssh-keygen -Y verify -f "$WORK/sig/allowed_signers" -I "$SIGNER" -n truthcoinapp-sums -s "$WORK/sig/SHA256SUMS.sig" \
         <"$WORK/sig/SHA256SUMS" || die "SHA256SUMS.sig doesn't check against the release key"

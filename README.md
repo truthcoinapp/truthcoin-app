@@ -104,6 +104,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 gh attestation verify <package> --repo truthcoinapp/truthcoin-app
 ```
 
+Each release's git tag is signed with the same key, so you can check that the source you read is the release's
+([`VERIFY.md`](VERIFY.md), step 1). The `.deb` rebuilds byte for byte from the tag (step 4 there).
+
 The app's own "Check for a newer version" (Settings) trusts only a release whose `SHA256SUMS` carries that
 signature.
 
