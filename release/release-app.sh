@@ -138,13 +138,26 @@ new_run() {
     die "no $wf run for $ref started after $since"
 }
 
+# Wait for run $1 to finish, and stop unless it succeeded. gh run watch can give up on a passing network error, so
+# GitHub's own record of the run decides: it is read again every 30 s until the run is complete (20 failed reads in a
+# row stop this, saying so).
 watch_run() {
-    local id=$1
+    local id=$1 r st="" c="" n=0
     echo "Run $id: https://github.com/$REPO/actions/runs/$id"
-    local ok=0
-    gh run watch "$id" --repo "$REPO" --exit-status --interval 30 >/dev/null 2>&1 || ok=1
-    gh run view "$id" --repo "$REPO" --json jobs -q '.jobs[] | "  \(.name): \(.conclusion)"'
-    [ $ok = 0 ] || die "run $id failed: gh run view $id --repo $REPO --log-failed"
+    gh run watch "$id" --repo "$REPO" --exit-status --interval 30 >/dev/null 2>&1 || true
+    while :; do
+        if r=$(gh run view "$id" --repo "$REPO" --json status,conclusion -q '"\(.status) \(.conclusion)"' 2>/dev/null); then
+            n=0
+            read -r st c <<<"$r"
+            [ "$st" = completed ] && break
+        else
+            n=$((n + 1))
+            [ $n -lt 20 ] || die "can't read run $id from GitHub (20 tries in a row): check the network, then gh run view $id --repo $REPO"
+        fi
+        sleep 30
+    done
+    gh run view "$id" --repo "$REPO" --json jobs -q '.jobs[] | "  \(.name): \(.conclusion)"' || true
+    [ "$c" = success ] || die "run $id ended ${c:-without a conclusion}: gh run view $id --repo $REPO --log-failed"
 }
 
 scan() {
