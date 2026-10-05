@@ -1,5 +1,6 @@
-//! The Truthcoin wallet, which lives in the node this app runs: its recovery words, balance, receiving, deposits from
-//! eCash (through the enforcer's wallet, which BitWindow runs) and withdrawals to eCash.
+//! The Truthcoin wallet, which lives in the node this app runs: its recovery words, balance, receiving (including
+//! the address BitWindow takes for a deposit from eCash) and withdrawals to eCash. The app never spends from the eCash
+//! wallet: deposits are made in BitWindow.
 //!
 //! The node keeps its seed unencrypted in its own data folder, and has no call that gives the words back. So the
 //! words are shown once, at setup, and the app keeps no copy: three of them are asked back before the wallet is made.
@@ -42,24 +43,10 @@ pub struct WalletStatus {
     pub incoming_sats: u64,
     /// On its way to eCash: withdrawals waiting for their bundle to pay out.
     pub withdrawing_sats: u64,
-    /// Deposits from eCash on their way (they arrive after an eCash block and the Truthcoin block after).
-    pub recent_deposits: Vec<Deposit>,
     /// Withdrawals to eCash this app made, until they pay out (or are hidden).
     pub withdrawals: Vec<WithdrawalView>,
     /// The cost of the waiting trades, already taken out of `total_sats`.
     pub pending_cost_sats: u64,
-}
-
-#[derive(Serialize, serde::Deserialize, Clone)]
-pub struct Deposit {
-    pub time: u64,
-    pub amount_sats: u64,
-    pub txid: String,
-    /// The Truthcoin height when it was sent: it has arrived by two blocks later.
-    #[serde(default)]
-    pub height: u64,
-    #[serde(default)]
-    pub arrived: bool,
 }
 
 #[derive(Serialize, serde::Deserialize, Clone)]
@@ -111,46 +98,6 @@ async fn holdings_in_coins(rpc: &crate::rpc::Rpc) -> Result<(u64, u64, u64), Str
         .map(|u| content_value(if u["output"].is_null() { u } else { &u["output"]["content"] }).0)
         .fold(0u64, |a, b| a.saturating_add(b));
     Ok((coins, incoming, withdrawing))
-}
-
-fn deposits_path(dir: &std::path::Path) -> std::path::PathBuf {
-    dir.join("deposits.json")
-}
-
-fn all_deposits(dir: &std::path::Path) -> Vec<Deposit> {
-    let now = crate::activity::unix_now();
-    let l: Vec<Deposit> = crate::files::read_json(&deposits_path(dir)).ok().flatten().unwrap_or_default();
-    l.into_iter().filter(|d| d.time + 2 * 86400 > now).collect()
-}
-
-/// Deposits still on their way: not seen in the wallet (its coin's outpoint names the eCash txid) and fewer than two
-/// Truthcoin blocks since they were sent (UX re-check N1). Ones found arrived are marked so.
-async fn deposits_on_their_way(dir: &std::path::Path, rpc: &crate::rpc::Rpc) -> Vec<Deposit> {
-    let mut l = all_deposits(dir);
-    if l.iter().all(|d| d.arrived) {
-        return vec![];
-    }
-    let height: u64 = rpc.public("getblockcount", json!([])).await.unwrap_or(0);
-    let utxos: Vec<Value> = rpc.private("get_wallet_utxos", json!([])).await.unwrap_or_default();
-    let outpoints: String = utxos.iter().map(|u| u["outpoint"].to_string().to_lowercase()).collect::<Vec<_>>().join(" ");
-    let mut changed = false;
-    for d in l.iter_mut().filter(|d| !d.arrived) {
-        let seen = !d.txid.is_empty() && outpoints.contains(&d.txid.to_lowercase());
-        if seen || (d.height > 0 && height >= d.height + 2) || d.time + 7200 < crate::activity::unix_now() {
-            d.arrived = true;
-            changed = true;
-        }
-    }
-    if changed {
-        let _ = crate::files::write_json(&deposits_path(dir), &l);
-    }
-    l.into_iter().filter(|d| !d.arrived).collect()
-}
-
-fn note_deposit(dir: &std::path::Path, d: Deposit) {
-    let mut l = all_deposits(dir);
-    l.push(d);
-    let _ = crate::files::write_json(&deposits_path(dir), &l);
 }
 
 fn withdrawals_path(dir: &std::path::Path) -> std::path::PathBuf {
@@ -206,9 +153,8 @@ pub async fn wallet_status(st: St<'_>) -> Result<WalletStatus, String> {
     }
     let b = balance(&rpc, &st.trades).await?;
     let coins = if has_seed { coins(&rpc).await.unwrap_or(0) } else { 0 };
-    let recent_deposits = deposits_on_their_way(&st.dir, &rpc).await;
     let withdrawals = withdrawals_view(&st.dir, &rpc).await;
-    Ok(WalletStatus { has_seed, coins, recent_deposits, withdrawals, ..b })
+    Ok(WalletStatus { has_seed, coins, withdrawals, ..b })
 }
 
 /// The balance as people read it (UX review B1), for the desktop and the phone.
@@ -234,7 +180,6 @@ pub async fn balance(rpc: &crate::rpc::Rpc, trades: &crate::trades::Trades) -> R
         pending_trades: open.len(),
         incoming_sats: incoming,
         withdrawing_sats: withdrawing,
-        recent_deposits: vec![],
         withdrawals: vec![],
         pending_cost_sats: cost,
     })
@@ -453,62 +398,6 @@ mod tests {
         let d = super::deposit_form("o51yVMf5cJZr7A5nWWBBzcLLDJt");
         assert!(d.starts_with("s13_o51yVMf5cJZr7A5nWWBBzcLLDJt_") && d.len() == "s13_o51yVMf5cJZr7A5nWWBBzcLLDJt_".len() + 6);
     }
-}
-
-#[derive(Serialize)]
-pub struct DepositInfo {
-    pub enforcer: String,
-    pub reachable: bool,
-    pub error: Option<String>,
-    pub confirmed_sats: u64,
-    pub pending_sats: u64,
-    pub synced: bool,
-}
-
-/// What the enforcer's wallet (BitWindow's eCash wallet) holds.
-#[tauri::command]
-pub async fn deposit_info(st: St<'_>) -> Result<DepositInfo, String> {
-    let e = st.node.settings().enforcer;
-    Ok(match enforcer::balance(&e).await {
-        Ok(b) => DepositInfo {
-            enforcer: e,
-            reachable: true,
-            error: None,
-            confirmed_sats: b.confirmed_sats,
-            pending_sats: b.pending_sats,
-            synced: b.has_synced,
-        },
-        Err(err) => DepositInfo {
-            enforcer: e,
-            reachable: false,
-            error: Some(err),
-            confirmed_sats: 0,
-            pending_sats: 0,
-            synced: false,
-        },
-    })
-}
-
-/// Deposit from the enforcer's eCash wallet to a new address of this wallet. Returns the eCash txid.
-#[tauri::command]
-pub async fn deposit(st: St<'_>, amount_sats: u64, fee_sats: u64) -> Result<String, String> {
-    if amount_sats < 10_000 {
-        return Err("Deposit at least 10,000 sats".into());
-    }
-    if fee_sats == 0 || fee_sats > 1_000_000 {
-        return Err("Pick an eCash fee between 1 and 1,000,000 sats".into());
-    }
-    let rpc = st.node.rpc_or_err()?;
-    if !has_seed(&rpc).await? {
-        return Err("Set up the wallet first".into());
-    }
-    let r = receive(&rpc).await?;
-    let e = st.node.settings().enforcer;
-    let height: u64 = rpc.public("getblockcount", json!([])).await.unwrap_or(0);
-    let txid = enforcer::deposit(&e, &r.address, amount_sats, fee_sats).await?;
-    crate::activity::note(&st.dir, &format!("deposit of {amount_sats} sats from eCash sent"));
-    note_deposit(&st.dir, Deposit { time: crate::activity::unix_now(), amount_sats, txid: txid.clone(), height, arrived: false });
-    Ok(txid)
 }
 
 /// A new address of BitWindow's eCash wallet (the enforcer's), to withdraw to.

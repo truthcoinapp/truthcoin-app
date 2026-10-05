@@ -23,13 +23,7 @@
   let panelErr = "";
   let timer: ReturnType<typeof setInterval>;
 
-  // Deposit
-  let dep: { reachable: boolean; error: string | null; confirmed_sats: number; pending_sats: number; synced: boolean } | null = null;
-  let depAmount = "";
-  let depFee = "1,000";
-  let depDone = "";
-  let depHold = false;
-  // Receive
+  // Deposit (made in BitWindow, to the address shown) and Receive
   let recv: { address: string; deposit_address: string } | null = null;
   let copied = "";
   // Withdraw
@@ -40,7 +34,6 @@
   let wDone = "";
   let busy = false;
   // Money leaving: the panel shows what will go, and a second press sends it.
-  let depConfirm = false;
   let wConfirm = false;
   let cancelAsk: string | null = null;
 
@@ -67,10 +60,9 @@
 
   async function open(p: typeof panel) {
     panel = panel === p ? "" : p;
-    depDone = wDone = panelErr = "";
-    depConfirm = wConfirm = false;
-    if (panel === "deposit") dep = await api.depositInfo().catch(() => null);
-    if (panel === "receive") recv = await api.receive().catch((e) => ((panelErr = errText(e)), null));
+    wDone = panelErr = "";
+    wConfirm = false;
+    if (panel === "deposit" || panel === "receive") recv = await api.receive().catch((e) => ((panelErr = errText(e)), null));
   }
 
   async function doCopy(text: string, what: string) {
@@ -94,29 +86,6 @@
       o.per_share >= 0.999 ? `${num(o.shares)} ${o.label} shares` : o.per_share > 0 ? `${num(o.shares)} ${o.label} shares at ${o.per_share.toFixed(2)} sat` : `${num(o.shares)} ${o.label} shares paid nothing`,
     );
     return `You got ${sats(s.paid_sats)} (${parts.join("; ")})`;
-  }
-
-  async function deposit() {
-    const a = parseWhole(depAmount), f = parseWhole(depFee);
-    if (!(a > 0)) return (panelErr = "Type how many sats to deposit");
-    if (!(f > 0)) return (panelErr = "Give the eCash fee in sats");
-    if (!depConfirm) return void (depConfirm = true);
-    depConfirm = false;
-    busy = true;
-    panelErr = "";
-    try {
-      const txid = await api.deposit(a, f);
-      depDone = txid;
-      depAmount = "";
-      // The eCash wallet's figures change: read them again, and give the button a moment so it isn't pressed twice.
-      depHold = true;
-      setTimeout(() => (depHold = false), 8000);
-      dep = await api.depositInfo().catch(() => dep);
-      dispatch("changed");
-    } catch (e) {
-      panelErr = errText(e);
-    }
-    busy = false;
   }
 
   // An eCash address: Bitcoin's forms (bech32 bc1/tb1/bcrt1, or base58 1/3/m/n/2), as eCash beta uses them.
@@ -232,9 +201,6 @@
     {#if wallet.withdrawing_sats > 0}
       <p class="small muted">A withdrawal pays out on eCash once miners approve its bundle: that takes days.</p>
     {/if}
-    {#each wallet.recent_deposits as d}
-      <p class="small muted">On its way: a deposit from eCash, {sats(d.amount_sats)}, sent {when(d.time)}. It arrives after the next eCash block and the Truthcoin block after it.</p>
-    {/each}
     {#each wallet.withdrawals as w}
       <p class="small muted">
         Withdrawal of {sats(w.amount_sats)} to eCash, {when(w.time)}: {STAGE[w.stage] ?? w.stage}.
@@ -252,7 +218,7 @@
     <p class="small muted" style="margin-top:6px">Splitting: done at the next Truthcoin block.</p>
   {/if}
   <div class="actions">
-    <button class:primary={panel === "deposit"} on:click={() => open("deposit")}>Deposit from eCash</button>
+    <button class:primary={panel === "deposit"} on:click={() => open("deposit")}>Deposit</button>
     <button class:primary={panel === "receive"} on:click={() => open("receive")}>Receive</button>
     <button class:primary={panel === "withdraw"} on:click={() => open("withdraw")}>Withdraw</button>
   </div>
@@ -263,29 +229,21 @@
 {#if panel === "deposit"}
   <div class="card">
     <h2>Deposit from eCash</h2>
-    {#if !dep}
-      <p class="muted"><span class="spin"></span></p>
-    {:else if !dep.reachable}
-      <div class="notice error">BitWindow's eCash wallet (the enforcer's) isn't answering: {dep.error}</div>
-    {:else}
-      <p class="small muted">
-        From BitWindow's eCash wallet: {sats(dep.confirmed_sats)} available{dep.pending_sats ? `, ${sats(dep.pending_sats)} pending` : ""}{dep.synced ? "" : " (still syncing)"}.
-        The coins arrive here after the deposit's eCash block and the Truthcoin block after it.
+    {#if panelErr}<div class="notice error">{panelErr}</div>{/if}
+    {#if recv}
+      <p class="small">
+        Make the deposit in BitWindow: open <b>Sidechains</b>, then <b>Create Deposits</b>, pick <b>Truthcoin</b> in the
+        list, paste this into <b>Sidechain Deposit Address</b>, and choose the amount and fee there (in eCash, so
+        0.001 is 100,000 sats).
       </p>
-      <div class="field"><label for="da">Amount (sats)</label><input id="da" bind:value={depAmount} inputmode="numeric" on:input={() => (depConfirm = false)} /></div>
-      <div class="field"><label for="df">eCash fee (sats)</label><input id="df" bind:value={depFee} inputmode="numeric" on:input={() => (depConfirm = false)} /></div>
-      {#if depConfirm}
-        <div class="notice warn">
-          Move {sats(parseWhole(depAmount))} from BitWindow's eCash wallet to this Truthcoin wallet, paying
-          {sats(parseWhole(depFee))} on eCash?
-        </div>
-      {/if}
-      {#if panelErr}<div class="notice error">{panelErr}</div>{/if}
-      <div class="actions">
-        <button class="primary" disabled={busy || depHold} on:click={deposit}>{#if busy}<span class="spin"></span>{/if} {depConfirm ? "Yes, deposit" : "Deposit"}</button>
-        {#if depConfirm}<button on:click={() => (depConfirm = false)}>Not now</button>{/if}
-      </div>
-      {#if depDone}<div class="notice ok" style="margin-top:10px">Sent on eCash: <code>{short(depDone)}</code>. Home shows it until it arrives.</div>{/if}
+      <div class="qr-wrap"><QrCode text={recv.deposit_address} size={180} /></div>
+      <div class="row"><code>{recv.deposit_address}</code><button class="small" on:click={() => recv && doCopy(recv.deposit_address, "deposit")}>{copied === "deposit" ? "Copied" : "Copy"}</button></div>
+      <p class="small muted" style="margin-top:10px">
+        Copy and paste it rather than typing it. The coins arrive here after the deposit's eCash block and the Truthcoin
+        block after it. This app never spends from your eCash wallet.
+      </p>
+    {:else if !panelErr}
+      <p class="muted"><span class="spin"></span></p>
     {/if}
   </div>
 {:else if panel === "receive"}
@@ -295,9 +253,7 @@
     {#if recv}
       <p class="small muted">From another Truthcoin wallet, this address:</p>
       <div class="row"><code>{recv.address}</code><button class="small" on:click={() => recv && doCopy(recv.address, "address")}>{copied === "address" ? "Copied" : "Copy"}</button></div>
-      <p class="small muted" style="margin-top:10px">For a deposit from an eCash wallet that asks for a sidechain deposit address (BitWindow does):</p>
-      <div class="qr-wrap"><QrCode text={recv.deposit_address} size={180} /></div>
-      <div class="row"><code>{recv.deposit_address}</code><button class="small" on:click={() => recv && doCopy(recv.deposit_address, "deposit")}>{copied === "deposit" ? "Copied" : "Copy"}</button></div>
+      <p class="small muted" style="margin-top:10px">From eCash: use Deposit, which gives the address BitWindow takes.</p>
     {:else if !panelErr}
       <p class="muted"><span class="spin"></span></p>
     {/if}

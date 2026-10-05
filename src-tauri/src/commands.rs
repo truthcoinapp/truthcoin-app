@@ -35,7 +35,8 @@ pub fn app_info(st: St<'_>) -> AppInfo {
 #[derive(Serialize)]
 pub struct EnforcerStatus {
     pub address: String,
-    /// Not on this computer: its gRPC has no encryption, so someone on the way could change a deposit (review N10).
+    /// Not on this computer: its gRPC has no encryption, so someone on the way could show the node a false eCash
+    /// (review N10), and whoever can reach it can spend its wallet.
     pub remote: bool,
     pub reachable: bool,
     pub height: u32,

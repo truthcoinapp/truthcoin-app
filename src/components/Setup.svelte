@@ -143,9 +143,11 @@
   <details class="card" bind:open={anotherOpen}>
     <summary>eCash on another computer?</summary>
     <p class="small muted" style="margin-top:8px">
-      If BitWindow runs eCash on another computer of yours, type its enforcer's address. On that computer, BitWindow
-      starts the enforcer on 127.0.0.1 only: it must listen on an address this computer can reach (the enforcer's
-      <code>--serve-grpc-addr</code>), behind a firewall that lets in only this computer.
+      If BitWindow runs eCash on another computer of yours, the safe way is an SSH tunnel from this computer:
+      <code>ssh -N -L 50051:127.0.0.1:50051 you@that-computer</code>, then <b>Check again</b> above, with nothing to
+      change here. Or type the enforcer's address: on that computer it must then listen on an address this one can
+      reach (BitWindow starts it on 127.0.0.1 only; the enforcer's <code>--serve-grpc-addr</code>), behind a firewall
+      that lets in only this computer.
     </p>
     <EnforcerAddress bind:address={enforcerTyped} saveHere on:saved={() => dispatch("changed")} />
   </details>

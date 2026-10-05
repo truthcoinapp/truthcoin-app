@@ -70,8 +70,7 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
   `src-tauri/src/phone/crypto.rs`; Nostr events: `nostr.rs`; relay connections: `relays.rs`; what a phone may do:
   `mod.rs`.
 - **Your trades:** `<app data>/trades.json`, the app's own record (each trade is written there before it goes to the
-  node). `<app data>/deposits.json` lists deposits from eCash sent in the last two hours (amount, time, eCash txid),
-  so Home can show them arriving. `<app data>/activity.log` notes what the app did, without words, keys or full
+  node). `<app data>/activity.log` notes what the app did, without words, keys or full
   addresses. `<app data>/wallet-ready` marks a folder whose wallet was set up. Any of these that can't be read is set
   aside as `*.bad-*`, never written over, and phones can't trade until you say you've looked.
 
@@ -87,6 +86,12 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
 - The screens themselves can reach nothing else: the content security policy in `tauri.conf.json` is
   `default-src 'self'`.
 - The node itself talks to Truthcoin peers (P2P) and to the enforcer; that is L2L's program.
+
+**What the app asks the enforcer** (`src-tauri/src/node/enforcer.rs`): `GetChainTip` and `GetChainInfo` (is it there,
+which chain), `GetBlockHeaderInfo` (eCash beta's fork block, in a release), and, only when it is on this computer,
+`CreateNewAddress` (an eCash address to withdraw to, when you press "Send to BitWindow's eCash wallet"). Nothing that
+spends: deposits are made in BitWindow. (`CreateDepositTransaction` is in the tests only, which deposit as BitWindow
+does.)
 
 **What the app asks the node** (the node's calls, by port):
 - Read-only port: `getblockcount`, `mainchain_sync_progress`, `list_peers`, `market_list`, `market_get`,

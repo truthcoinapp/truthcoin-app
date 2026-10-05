@@ -50,7 +50,6 @@ export interface WalletStatus {
   pending_trades: number;
   incoming_sats: number;
   withdrawing_sats: number;
-  recent_deposits: { time: number; amount_sats: number; txid: string }[];
   withdrawals: { time: number; amount_sats: number; address: string; txid: string; stage: "waiting" | "bundled" | "sent" }[];
   pending_cost_sats: number;
 }
@@ -196,9 +195,6 @@ export const api = {
   confirmWords: (answers: string[]) => invoke<void>("wallet_confirm_words", { answers }),
   restore: (words: string) => invoke<void>("wallet_restore", { words }),
   receive: () => invoke<{ address: string; deposit_address: string }>("wallet_receive"),
-  depositInfo: () =>
-    invoke<{ enforcer: string; reachable: boolean; error: string | null; confirmed_sats: number; pending_sats: number; synced: boolean }>("deposit_info"),
-  deposit: (amountSats: number, feeSats: number) => invoke<string>("deposit", { amountSats, feeSats }),
   withdraw: (address: string, amountSats: number, feeSats: number, mainchainFeeSats: number) =>
     invoke<any>("withdraw", { address, amountSats, feeSats, mainchainFeeSats }),
   updateCheck: () => invoke<{ current: string; newer: string | null; url: string | null; note: string | null }>("update_check"),

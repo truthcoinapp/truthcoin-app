@@ -1,7 +1,8 @@
 # Truthcoin App
 
 A desktop app for your own Truthcoin wallet: it runs a Truthcoin node on your computer, shows the prediction markets,
-and lets you trade, create markets and deposit from eCash. A phone page pairs with it by QR code, so you can see
+and lets you trade and create markets; deposits from eCash are made in BitWindow, to the address the app gives. It
+never spends from your eCash wallet. A phone page pairs with it by QR code, so you can see
 markets and positions and trade from your phone, within a daily limit you set. The phone reaches the desktop through
 public Nostr relays, sealed end to end. **Nobody hosts anything for it.**
 
@@ -44,22 +45,31 @@ Check your download first: [Verify your download](#verify-your-download).
    a Truthcoin that BitWindow runs). It stops when the app quits.
 4. **Wallet:** new recovery words, shown once (the node can't show them again, and the app keeps no copy), with three
    asked back; or your old words, after which the app looks through the chain for the wallet's coins.
-5. **Deposit** from BitWindow's eCash wallet (the enforcer's) on Home. It arrives after the deposit's eCash block and
-   the Truthcoin block that follows.
+5. **Deposit** on Home gives this wallet's deposit address (`s13_…`, with a QR code). In BitWindow, open
+   **Sidechains › Create Deposits**, pick Truthcoin, paste it into **Sidechain Deposit Address**, and choose the amount
+   and fee there (in eCash). Paste it rather than typing it (current BitWindow also checks its checksum). The coins
+   arrive after the deposit's eCash block and the Truthcoin block that follows. The app itself never spends from your
+   eCash wallet.
 
 ### eCash on another computer
 
-The Truthcoin node needs only the enforcer, so eCash can run on another computer of yours. When nothing answers on
-this computer, the Setup screen asks for the enforcer's address ("eCash on another computer?"), with **Test** and
-**Save and check again**; later it is in Settings › Advanced. On that computer the enforcer must listen on an address
-this one can reach: BitWindow starts it on `127.0.0.1` only (the enforcer's `--serve-grpc-addr`).
+The Truthcoin node needs only the enforcer, so eCash can run on another computer of yours. The enforcer has **no
+login**: anyone who can reach its port can spend its eCash wallet. So don't open it to the network; reach it through
+an **SSH tunnel** from this computer, which only your SSH key opens and which is encrypted:
 
-- The connection isn't encrypted: someone on the network between the two could change a deposit or the eCash
-  address a withdrawal goes to. Use it over a network you trust, such as your home network or Tailscale.
-- The enforcer has no login, and anyone who can reach it can spend its eCash wallet. Let only this computer reach
-  it (a firewall rule).
-- Deposits come from that computer's eCash wallet, and the app won't ask that enforcer for a withdrawal address (its
-  answer could be changed on the way): copy one from BitWindow there.
+```sh
+ssh -N -L 50051:127.0.0.1:50051 you@that-computer
+```
+
+Leave that running while you use the app. The enforcer stays on `127.0.0.1` there (as BitWindow starts it), and the
+app finds it at its default address, `127.0.0.1:50051`, with nothing to change.
+
+Without a tunnel: the Setup screen's "eCash on another computer?" (later, Settings › Advanced) takes the enforcer's
+address, with **Test** and **Save and check again**. On that computer the enforcer must then listen on an address
+this one can reach (the enforcer's `--serve-grpc-addr`), and a firewall must let in only this computer. The connection
+isn't encrypted, so someone on the network between the two could show the Truthcoin node a false eCash. The app
+won't ask a distant enforcer for a withdrawal address (its answer could be changed on the way): copy one from BitWindow
+there.
 
 ## Using it
 

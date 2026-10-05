@@ -63,8 +63,8 @@
 {#if err}<p class="small" style:color="var(--error)">{err}</p>{/if}
 {#if remote}
   <div class="notice warn small">
-    That's another computer. The connection to it isn't encrypted: someone on the network between them could change a
-    deposit or the address a withdrawal goes to. Use it only over a network you trust, such as your home network or
-    Tailscale. And anyone who can reach that enforcer can spend its eCash wallet, so let only this computer reach it.
+    That's another computer. Anyone who can reach that enforcer can spend its eCash wallet (it has no login), and the
+    connection isn't encrypted, so someone on the network between them could show the Truthcoin node a false eCash.
+    Safer: an SSH tunnel to it, then <code>127.0.0.1:50051</code> here (README, "eCash on another computer").
   </div>
 {/if}

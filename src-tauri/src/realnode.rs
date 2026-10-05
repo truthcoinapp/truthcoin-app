@@ -108,7 +108,7 @@ async fn realnode_a_market_through_the_app() {
     let again: Result<Value, _> = rpc.private("set_seed_from_mnemonic", json!([other])).await;
     assert!(again.is_err(), "a seed can't be replaced by other words");
 
-    // Deposit 2 coins from the enforcer's wallet, as the Deposit screen does.
+    // Deposit 2 coins from the enforcer's wallet, as BitWindow does (the app itself never spends from it).
     let r = crate::wallet::receive(&rpc).await.unwrap();
     assert!(r.deposit_address.starts_with("s13_"));
     let txid = enforcer::deposit(&st.enforcer, &r.address, 200_000_000, 100_000).await.expect("deposit");

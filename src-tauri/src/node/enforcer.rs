@@ -1,6 +1,8 @@
-//! The enforcer's gRPC (BIP300/301, L2L's bip300301_enforcer, which BitWindow runs). The app asks it three things:
-//! is it there and where is its chain, how much its wallet holds, and to make a deposit to this app's Truthcoin
-//! address (BIP300 M5). The messages are written here from the published field numbers.
+//! The enforcer's gRPC (BIP300/301, L2L's bip300301_enforcer, which BitWindow runs). The app asks it where its chain
+//! is (and, in a release, whether it is eCash beta's) and, only when it is on this computer, for a new address of its
+//! wallet to withdraw to. It never asks that wallet to spend: deposits are made in BitWindow, to the address the
+//! Deposit panel gives. (The tests deposit through it, as BitWindow does.) The messages are written here from the
+//! published field numbers.
 
 use std::time::Duration;
 use tonic::codegen::http::uri::PathAndQuery;
@@ -14,12 +16,14 @@ pub struct StringValue {
     pub value: String,
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct UInt32Value {
     #[prost(uint32, tag = "1")]
     pub value: u32,
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct UInt64Value {
     #[prost(uint64, tag = "1")]
@@ -54,16 +58,7 @@ pub struct GetChainTipResponse {
     pub block_header_info: Option<BlockHeaderInfo>,
 }
 
-#[derive(Clone, PartialEq, prost::Message)]
-pub struct GetBalanceResponse {
-    #[prost(uint64, tag = "1")]
-    pub confirmed_sats: u64,
-    #[prost(uint64, tag = "2")]
-    pub pending_sats: u64,
-    #[prost(bool, tag = "3")]
-    pub has_synced: bool,
-}
-
+#[cfg(test)]
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct CreateDepositTransactionRequest {
     #[prost(message, optional, tag = "1")]
@@ -76,6 +71,7 @@ pub struct CreateDepositTransactionRequest {
     pub fee_sats: Option<UInt64Value>,
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct CreateDepositTransactionResponse {
     #[prost(message, optional, tag = "1")]
@@ -168,11 +164,6 @@ pub async fn chain(addr: &str) -> Result<(u32, String), String> {
     Ok((tip.block_header_info.map(|b| b.height).unwrap_or(0), network_name(info.network).to_string()))
 }
 
-/// The enforcer wallet's balance (BitWindow's eCash wallet): confirmed and pending sats, and whether it has synced.
-pub async fn balance(addr: &str) -> Result<GetBalanceResponse, String> {
-    unary(addr, "/cusf.mainchain.v1.WalletService/GetBalance", Empty {}, Duration::from_secs(20)).await
-}
-
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct CreateNewAddressResponse {
     #[prost(string, tag = "1")]
@@ -189,8 +180,9 @@ pub async fn new_address(addr: &str) -> Result<String, String> {
     Ok(r.address)
 }
 
-/// Deposit `value_sats` from the enforcer's wallet to `address` (a Truthcoin address of this wallet, not the
-/// `s13_…` deposit form), paying `fee_sats` on eCash. Returns the eCash txid.
+/// Tests only (the app never spends from the enforcer's wallet): deposit `value_sats` from it to `address` (a
+/// Truthcoin address, not the `s13_…` form, which would burn the coins), paying `fee_sats` on eCash. Returns the txid.
+#[cfg(test)]
 pub async fn deposit(addr: &str, address: &str, value_sats: u64, fee_sats: u64) -> Result<String, String> {
     let req = CreateDepositTransactionRequest {
         sidechain_id: Some(UInt32Value { value: TRUTHCOIN_SLOT }),

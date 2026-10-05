@@ -28,8 +28,8 @@
   <h2>Receive</h2>
   <div class="card stack-sm">
     <p>
-      Deposits from eCash are made on your computer, in the Truthcoin App or in BitWindow: they move coins from eCash
-      into this wallet.
+      Deposits from eCash are made in BitWindow, to the deposit address below (the Truthcoin App's Deposit shows it
+      too): they move coins from eCash into this wallet.
     </p>
     <p class="small muted">The addresses below are for when you need them written out, to give to someone or to check.</p>
   </div>

@@ -58,9 +58,9 @@
 
 {#if err}<div class="notice error">{err}</div>{/if}
 {#if node.enforcer.remote}
-  <div class="notice warn">The enforcer is on another computer ({node.enforcer.address}). Its connection isn't
-    encrypted: someone on the way could change a deposit or the address a withdrawal goes to. Use one on this computer
-    if you can.</div>
+  <div class="notice warn">The enforcer is on another computer ({node.enforcer.address}). Anyone who can reach it can
+    spend its eCash wallet, and the connection isn't encrypted. An SSH tunnel fixes both (README, "eCash on another
+    computer").</div>
 {/if}
 
 <div class="card">

@@ -124,8 +124,6 @@ pub fn run() {
             wallet::wallet_confirm_words,
             wallet::wallet_restore,
             wallet::wallet_receive,
-            wallet::deposit_info,
-            wallet::deposit,
             wallet::withdraw,
             wallet::wallet_split,
             create::create_info,

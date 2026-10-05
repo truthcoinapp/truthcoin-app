@@ -1,6 +1,6 @@
 [package]
 name = "truthcoin-app"
-version = "0.1.0"
+version = "0.1.1"
 description = "Truthcoin App: run a Truthcoin node and trade its prediction markets, from the desktop or a paired phone"
 authors = ["The Truthcoin App developers"]
 license = "MIT"
