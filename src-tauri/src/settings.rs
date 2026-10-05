@@ -86,15 +86,54 @@ impl Settings {
 
     /// The enforcer's host and port.
     pub fn enforcer_host_port(&self) -> Result<(String, u16), String> {
-        let (h, p) = self.enforcer.rsplit_once(':').ok_or("the enforcer's address needs a port, like 127.0.0.1:50051")?;
-        let p: u16 = p.parse().map_err(|_| "the enforcer's port isn't a number")?;
-        Ok((h.trim_matches(|c| c == '[' || c == ']').to_string(), p))
+        enforcer_host_port(&self.enforcer)
     }
+}
+
+/// An enforcer address as typed, made plain: `host:port`, with `http://` and a trailing `/` taken off. Its gRPC has
+/// no TLS, so `https://` is refused rather than quietly sent in the clear.
+pub fn clean_enforcer(typed: &str) -> Result<String, String> {
+    let mut a = typed.trim();
+    let starts = |a: &str, p: &str| a.get(..p.len()).is_some_and(|x| x.eq_ignore_ascii_case(p));
+    if starts(a, "https://") {
+        return Err("The enforcer has no encrypted (https) address: type its host and port, like 192.168.1.20:50051".into());
+    }
+    if starts(a, "http://") {
+        a = &a[7..];
+    }
+    let a = a.trim_end_matches('/');
+    if a.is_empty() || a.len() > 100 || !a.chars().all(|c| c.is_ascii_alphanumeric() || ".-:[]".contains(c)) {
+        return Err("Type the enforcer's host and port, like 192.168.1.20:50051".into());
+    }
+    let (h, p) = enforcer_host_port(a)?;
+    if h.is_empty() || p == 0 {
+        return Err("The enforcer's address needs a host, like 192.168.1.20:50051".into());
+    }
+    Ok(a.to_string())
+}
+
+fn enforcer_host_port(enforcer: &str) -> Result<(String, u16), String> {
+    let (h, p) = enforcer.rsplit_once(':').ok_or("the enforcer's address needs a port, like 127.0.0.1:50051")?;
+    let p: u16 = p.parse().map_err(|_| "the enforcer's port isn't a number")?;
+    Ok((h.trim_matches(|c| c == '[' || c == ']').to_string(), p))
 }
 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn enforcer_addresses_are_made_plain() {
+        use super::clean_enforcer as c;
+        assert_eq!(c(" 192.168.1.20:50051 ").unwrap(), "192.168.1.20:50051");
+        assert_eq!(c("http://192.168.1.20:50051/").unwrap(), "192.168.1.20:50051");
+        assert_eq!(c("HTTP://box.local:50051").unwrap(), "box.local:50051");
+        assert_eq!(c("[fd7a:115c::1]:50051").unwrap(), "[fd7a:115c::1]:50051");
+        assert!(c("https://192.168.1.20:50051").unwrap_err().contains("https"));
+        for bad in ["", "192.168.1.20", "192.168.1.20:", "192.168.1.20:port", ":50051", "a b:50051", "x/y:50051", "1.2.3.4:99999", "1.2.3.4:0", "éééé:50051"] {
+            assert!(c(bad).is_err(), "{bad:?} should be refused");
+        }
+    }
+
     #[test]
     fn a_release_build_ignores_dev_settings() {
         let s = super::Settings {

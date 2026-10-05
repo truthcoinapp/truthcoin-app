@@ -42,8 +42,9 @@ your user only (`src-tauri/src/files.rs`).
   match. It is hashed again before every start.
 - `mod.rs`: starts it as the app's child with `--datadir <app data>/node`, the read-only RPC on `127.0.0.1:16013`,
   the wallet and node-control calls on a private port picked at random at each start (`--private-rpc-port`; on Linux
-  on a random address in `127.0.0.0/8`, elsewhere 127.0.0.1), P2P on `0.0.0.0:14013`, ZMQ on `127.0.0.1:16015` (all in Settings › Advanced), and the enforcer's gRPC
-  (`127.0.0.1:50051` by default). `<app data>/node.json` records its pid, program and ports, so a later launch can
+  on a random address in `127.0.0.0/8`, elsewhere 127.0.0.1), P2P on `0.0.0.0:14013`, ZMQ on `127.0.0.1:16015` (all
+  in Settings › Advanced), and the enforcer's gRPC (`127.0.0.1:50051` by default; Setup and Settings › Advanced can
+  point it at another computer, README, "eCash on another computer"). `<app data>/node.json` records its pid, program and ports, so a later launch can
   stop a node a crash left behind (only if that pid still runs the same program). On Linux the node is told to stop
   if the app dies; on every system it is stopped when the app quits. The node gets the app's environment without
   `RUST_LOG`, at `--log-level info` (at trace level it would log RPC requests, recovery words included). One copy of

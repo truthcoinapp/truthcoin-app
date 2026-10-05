@@ -2,6 +2,7 @@
   import { createEventDispatcher } from "svelte";
   import { api, errText, openUrl, type AppInfo, type NodeStatus } from "../lib/api";
   import { num } from "../lib/format";
+  import EnforcerAddress from "./EnforcerAddress.svelte";
 
   export let node: NodeStatus;
   export let info: AppInfo | null;
@@ -116,7 +117,7 @@
           </select>
         </div>
       {/if}
-      <div class="field"><label for="e">Enforcer (gRPC)</label><input id="e" bind:value={adv.enforcer} /></div>
+      <EnforcerAddress bind:address={adv.enforcer} />
       <div class="row">
         <div class="field" style="flex:1"><label for="rp">RPC port</label><input id="rp" bind:value={adv.rpc_port} inputmode="numeric" /></div>
         <div class="field" style="flex:1"><label for="zp">ZMQ port</label><input id="zp" bind:value={adv.zmq_port} inputmode="numeric" /></div>

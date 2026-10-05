@@ -169,6 +169,15 @@ export interface NewMarket {
   tags: string[];
 }
 
+export type EnforcerCheck = {
+  address: string;
+  ok: boolean;
+  remote: boolean;
+  height: number;
+  network: string;
+  detail: string;
+};
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   nodeStatus: () => invoke<NodeStatus>("node_status"),
@@ -180,6 +189,8 @@ export const api = {
   advanced: () => invoke<{ network: string; enforcer: string; rpc_port: number; p2p_addr: string; zmq_port: number }>("settings_advanced"),
   advancedSet: (a: { network: string; enforcer: string; rpc_port: number; p2p_addr: string; zmq_port: number }) =>
     invoke<void>("settings_advanced_set", { a }),
+  enforcerTest: (address: string) => invoke<EnforcerCheck>("enforcer_test", { address }),
+  enforcerSet: (address: string) => invoke<string>("enforcer_set", { address }),
   wallet: () => invoke<WalletStatus>("wallet_status"),
   newWords: () => invoke<{ words: string[]; ask: number[] }>("wallet_new_words"),
   confirmWords: (answers: string[]) => invoke<void>("wallet_confirm_words", { answers }),

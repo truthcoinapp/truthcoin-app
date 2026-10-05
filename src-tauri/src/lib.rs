@@ -105,6 +105,8 @@ pub fn run() {
             commands::node_stop,
             commands::node_log,
             commands::settings_advanced,
+            commands::enforcer_test,
+            commands::enforcer_set,
             commands::settings_advanced_set,
             commands::markets,
             commands::settled,

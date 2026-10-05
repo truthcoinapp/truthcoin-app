@@ -20,7 +20,8 @@ are trading in it.
 
 - **Linux (x86-64) or macOS.** L2L builds its node for those.
 - **BitWindow running eCash**, which also starts the enforcer the Truthcoin node follows (on `127.0.0.1:50051`). The
-  app doesn't install or run eCash or the enforcer; it runs everything else.
+  app doesn't install or run eCash or the enforcer; it runs everything else. eCash can also run on another computer
+  of yours ([below](#ecash-on-another-computer)).
 
 ## Install
 
@@ -45,6 +46,20 @@ Check your download first: [Verify your download](#verify-your-download).
    asked back; or your old words, after which the app looks through the chain for the wallet's coins.
 5. **Deposit** from BitWindow's eCash wallet (the enforcer's) on Home. It arrives after the deposit's eCash block and
    the Truthcoin block that follows.
+
+### eCash on another computer
+
+The Truthcoin node needs only the enforcer, so eCash can run on another computer of yours. When nothing answers on
+this computer, the Setup screen asks for the enforcer's address ("eCash on another computer?"), with **Test** and
+**Save and check again**; later it is in Settings › Advanced. On that computer the enforcer must listen on an address
+this one can reach: BitWindow starts it on `127.0.0.1` only (the enforcer's `--serve-grpc-addr`).
+
+- The connection isn't encrypted: someone on the network between the two could change a deposit or the eCash
+  address a withdrawal goes to. Use it over a network you trust, such as your home network or Tailscale.
+- The enforcer has no login, and anyone who can reach it can spend its eCash wallet. Let only this computer reach
+  it (a firewall rule).
+- Deposits come from that computer's eCash wallet, and the app won't ask that enforcer for a withdrawal address (its
+  answer could be changed on the way): copy one from BitWindow there.
 
 ## Using it
 

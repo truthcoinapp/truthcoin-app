@@ -105,6 +105,73 @@ pub async fn node_status(st: St<'_>) -> Result<NodeStatus, String> {
     })
 }
 
+#[derive(Serialize)]
+pub struct EnforcerCheck {
+    /// The address as it would be saved.
+    pub address: String,
+    /// It answers, and (in a release build) follows eCash beta.
+    pub ok: bool,
+    pub remote: bool,
+    pub height: u32,
+    pub network: String,
+    /// Why not, or what it found, in words for the screen.
+    pub detail: String,
+}
+
+/// Try an enforcer address as typed, saved or not: does it answer, and in a release build, is it on eCash beta (the
+/// check the node's start makes)? Nothing is sent but the enforcer's read-only chain questions.
+#[tauri::command]
+pub async fn enforcer_test(address: String) -> EnforcerCheck {
+    let mut c = EnforcerCheck { address: address.trim().into(), ok: false, remote: false, height: 0, network: String::new(), detail: String::new() };
+    let a = match crate::settings::clean_enforcer(&address) {
+        Ok(a) => a,
+        Err(e) => {
+            c.detail = e;
+            return c;
+        }
+    };
+    c.address = a.clone();
+    c.remote = !is_loopback(&a);
+    match enforcer::chain(&a).await {
+        Ok((h, n)) => {
+            c.height = h;
+            c.network = n;
+        }
+        Err(_) => {
+            c.detail = if c.remote {
+                format!(
+                    "Nothing answers at {a}. On that computer the enforcer must listen on an address this computer can \
+                     reach (BitWindow starts it on 127.0.0.1 only), and its firewall must let this computer in."
+                )
+            } else {
+                format!("Nothing answers at {a}. Is eCash running in BitWindow?")
+            };
+            return c;
+        }
+    }
+    if crate::settings::BETA_ONLY {
+        if let Err(e) = enforcer::check_ecash_beta(&a).await {
+            c.detail = e;
+            return c;
+        }
+    }
+    c.ok = true;
+    c.detail = format!("It answers: eCash block {}", c.height);
+    c
+}
+
+/// Use this enforcer from the node's next start (Setup, when none answers on this computer).
+#[tauri::command]
+pub fn enforcer_set(st: St<'_>, address: String) -> Result<String, String> {
+    let a = crate::settings::clean_enforcer(&address)?;
+    let mut s = st.node.settings.lock().unwrap();
+    let mut n = s.clone();
+    n.enforcer = a.clone();
+    n.save(&st.dir).map_err(|e| e.to_string())?;
+    *s = n;
+    Ok(a)
+}
+
 pub fn is_loopback(addr: &str) -> bool {
     let host = addr.rsplit_once(':').map(|x| x.0).unwrap_or(addr).trim_matches(|c| c == '[' || c == ']');
     host == "localhost" || host.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
@@ -185,11 +252,11 @@ pub fn settings_advanced_set(st: St<'_>, a: Advanced) -> Result<(), String> {
     if crate::settings::BETA_ONLY && a.network != "betanet" {
         return Err("This release runs only on eCash beta".into());
     }
+    let enforcer = crate::settings::clean_enforcer(&a.enforcer)?;
     let mut s = st.node.settings.lock().unwrap();
     let mut n = s.clone();
     n.network = a.network;
-    n.enforcer = a.enforcer.trim().to_string();
-    n.enforcer_host_port()?;
+    n.enforcer = enforcer;
     a.p2p_addr.parse::<std::net::SocketAddr>().map_err(|_| "the P2P address needs an IP and a port")?;
     n.rpc_port = a.rpc_port;
     n.p2p_addr = a.p2p_addr;

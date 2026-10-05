@@ -4,6 +4,7 @@
   import { createEventDispatcher, onDestroy } from "svelte";
   import { api, errText, type InstallProgress, type NodeStatus, type WalletStatus } from "../lib/api";
   import { num } from "../lib/format";
+  import EnforcerAddress from "./EnforcerAddress.svelte";
 
   export let node: NodeStatus;
   export let wallet: WalletStatus | null;
@@ -19,6 +20,10 @@
   let answers: string[] = ["", "", ""];
   let restoreText = "";
   let saw = false;
+  // The enforcer box takes the saved address once: the status is read again every few seconds, and that mustn't
+  // overwrite what is being typed, or close the box.
+  let enforcerTyped = node.enforcer.address;
+  let anotherOpen = node.enforcer.remote;
 
   onDestroy(() => timer && clearInterval(timer));
 
@@ -108,7 +113,8 @@
 <div class="card">
   <h2>Set up</h2>
   <p class="muted small">
-    This app runs a Truthcoin node on this computer, beside the eCash node and the enforcer that BitWindow runs.
+    This app runs a Truthcoin node on this computer. It follows eCash through the enforcer that BitWindow runs, on this
+    computer or another of yours.
   </p>
   <ol class="small muted" style="margin-left: 18px">
     <li style:color={step === "stack" ? "var(--text)" : ""}>BitWindow's eCash stack {step !== "stack" ? "✓" : ""}</li>
@@ -129,11 +135,20 @@
       The Truthcoin node follows eCash through the enforcer, which BitWindow starts with eCash. Nothing answers at
       <code>{node.enforcer.address}</code> yet.
     </p>
-    <p class="muted small">Open BitWindow and wait until eCash is running, then check again. (Another address: Settings › Advanced.)</p>
+    <p class="muted small">Open BitWindow and wait until eCash is running, then check again.</p>
     <div class="actions">
       <button class="primary" on:click={() => dispatch("changed")}>Check again</button>
     </div>
   </div>
+  <details class="card" bind:open={anotherOpen}>
+    <summary>eCash on another computer?</summary>
+    <p class="small muted" style="margin-top:8px">
+      If BitWindow runs eCash on another computer of yours, type its enforcer's address. On that computer, BitWindow
+      starts the enforcer on 127.0.0.1 only: it must listen on an address this computer can reach (the enforcer's
+      <code>--serve-grpc-addr</code>), behind a firewall that lets in only this computer.
+    </p>
+    <EnforcerAddress bind:address={enforcerTyped} saveHere on:saved={() => dispatch("changed")} />
+  </details>
 {:else if step === "install"}
   <div class="card">
     <h2>Install the Truthcoin node</h2>
