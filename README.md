@@ -94,11 +94,11 @@ GitHub for each package.
 The release key (also in [`release/truthcoinapp-release.pub`](release/truthcoinapp-release.pub)):
 
 ```
-<the key is added here with the first signed release>
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJk2LAjNIvDL/n+UaAQZqfl6rNGGI+8Z9yQ6Nftro2b5
 ```
 
 ```sh
-echo "truthcoinapp-release <the key above>" > allowed_signers
+echo "truthcoinapp-release ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJk2LAjNIvDL/n+UaAQZqfl6rNGGI+8Z9yQ6Nftro2b5" > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I truthcoinapp-release -n truthcoinapp-sums -s SHA256SUMS.sig < SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
 gh attestation verify <package> --repo truthcoinapp/truthcoin-app

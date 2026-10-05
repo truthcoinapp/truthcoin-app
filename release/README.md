@@ -34,7 +34,7 @@ and `SHA256SUMS` must list the names as published.
    details, and push `main`:
 
    ```
-   git remote add origin git@github.com:truthcoinapp/truthcoin-app.git
+   git remote add origin https://github.com/truthcoinapp/truthcoin-app.git
    release/release-app.sh 0.1.0 scan
    git push origin main
    ```
