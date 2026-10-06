@@ -7,6 +7,9 @@ use std::path::Path;
 const MAX: u64 = 512 * 1024;
 
 pub fn note(dir: &Path, msg: &str) {
+    if crate::files::stopped() {
+        return;
+    }
     let p = dir.join("activity.log");
     if std::fs::metadata(&p).map(|m| m.len() > MAX).unwrap_or(false) {
         if let Ok(b) = std::fs::read(&p) {

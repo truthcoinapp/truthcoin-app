@@ -150,6 +150,42 @@ export interface PhoneInfo {
   blocked: string | null;
 }
 
+/** Obliterate's two parts: Truthcoin (the node program, its data with the wallet, the wallet's records) and the app. */
+export type ObliteratePart = "truthcoin" | "app";
+
+export interface ObliterateItem {
+  id: string;
+  part: ObliteratePart;
+  label: string;
+  path: string;
+  size: number;
+  note: string;
+  /** Goes when the app closes. */
+  at_exit: boolean;
+}
+
+/** How the app's own program goes: removed as the app closes (`at_exit`), or by hand. */
+export interface RemoveApp {
+  kind: "mac" | "appimage" | "deb" | "other";
+  path: string | null;
+  at_exit: boolean;
+}
+
+export interface ObliteratePlan {
+  items: ObliterateItem[];
+  blocked: string | null;
+  remove_app: RemoveApp;
+  own_node_program: string | null;
+}
+
+export interface Obliterated {
+  removed: string[];
+  at_exit: string[];
+  errors: string[];
+  app_removed: boolean;
+  remove_app: RemoveApp;
+}
+
 export interface NewMarket {
   title: string;
   description: string;
@@ -222,12 +258,16 @@ export const api = {
   phoneInfo: () => invoke<PhoneInfo>("phone_info"),
   pairStart: () => invoke<string>("phone_pair_start"),
   pairState: () => invoke<{ state: string; name?: string; code?: string; expires?: number }>("phone_pair_state"),
-  pairAnswer: (allow: boolean) => invoke<void>("phone_pair_answer", { allow }),
+  pairAnswer: (allow: boolean, replace = false) => invoke<void>("phone_pair_answer", { allow, replace }),
   pairCancel: () => invoke<void>("phone_pair_cancel"),
   phoneRevoke: (np: string) => invoke<void>("phone_revoke", { np }),
   phoneSetLimit: (np: string, limitSats: number) => invoke<void>("phone_set_limit", { np, limitSats }),
   heldAnswer: (id: string, approve: boolean) => invoke<any>("phone_held_answer", { id, approve }),
   setRelays: (relays: string[], page: string) => invoke<void>("phone_set_relays", { relays, page }),
+  obliteratePlan: () => invoke<ObliteratePlan>("obliterate_plan"),
+  obliterate: (truthcoin: boolean, theApp: boolean, words: boolean, shown: { id: string; path: string }[]) =>
+    invoke<Obliterated>("obliterate", { truthcoin, theApp, words, shown }),
+  appClose: () => invoke<void>("app_close"),
 };
 
 /** Open a link in the system's browser. Only the addresses tauri.conf.json allows (the app's GitHub pages) open. */

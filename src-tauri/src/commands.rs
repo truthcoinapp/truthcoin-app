@@ -182,12 +182,15 @@ pub fn is_loopback(addr: &str) -> bool {
 #[tauri::command]
 pub async fn node_install(st: St<'_>) -> Result<(), String> {
     {
-        let p = st.node.install.lock().unwrap();
+        let mut p = st.node.install.lock().unwrap();
         if p.running {
             return Ok(());
         }
+        if st.node.removing.load(std::sync::atomic::Ordering::SeqCst) || crate::files::stopped() {
+            return Err("Obliterate is removing Truthcoin from this computer".into());
+        }
+        *p = install::InstallProgress { running: true, ..Default::default() };
     }
-    *st.node.install.lock().unwrap() = install::InstallProgress { running: true, ..Default::default() };
     let node = st.node.clone();
     tauri::async_runtime::spawn(async move {
         let web = reqwest::Client::builder().user_agent(concat!("truthcoin-app/", env!("CARGO_PKG_VERSION"))).build();

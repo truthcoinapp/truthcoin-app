@@ -5,6 +5,7 @@
   import { api, errText, type InstallProgress, type NodeStatus, type WalletStatus } from "../lib/api";
   import { num } from "../lib/format";
   import EnforcerAddress from "./EnforcerAddress.svelte";
+  import Obliterate from "./Obliterate.svelte";
 
   export let node: NodeStatus;
   export let wallet: WalletStatus | null;
@@ -240,3 +241,15 @@
     </div>
   </div>
 {/if}
+
+<!-- Settings is out of reach until setup is done: removing Truthcoin or the app is here too. -->
+<details class="remove">
+  <summary>Remove Truthcoin or this app</summary>
+  <Obliterate running={node.run.state === "running"} on:obliterated />
+</details>
+
+<style>
+  .remove {
+    margin-top: 18px;
+  }
+</style>

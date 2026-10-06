@@ -312,7 +312,7 @@ impl Phone {
 
     /// Connect to the relays if there is anything to listen for (a paired phone, or pairing under way).
     pub fn ensure_running(self: &Arc<Self>) {
-        if !self.wanted() || self.pool.lock().unwrap().is_some() {
+        if crate::files::stopped() || !self.wanted() || self.pool.lock().unwrap().is_some() {
             return;
         }
         let tx = {
@@ -332,6 +332,32 @@ impl Phone {
         let relays = self.node.settings().relays;
         let pool = RelayPool::start(&relays, self.nk.pubkey(), tx, self.seen.clone(), self.gate.clone());
         *self.pool.lock().unwrap() = Some(pool);
+    }
+
+    /// "Obliterate" removed the wallet: the address last given to a phone and the trades waiting for a yes belonged to
+    /// it (security review H2, L4).
+    pub fn forget_wallet(&self) {
+        *self.last_receive.lock().unwrap() = None;
+        let dropped: Vec<Held> = {
+            let mut h = self.held.lock().unwrap();
+            let d = std::mem::take(&mut *h);
+            let _ = self.save_held(&h);
+            d
+        };
+        // Each phone is told, as when a held trade expires (security re-review N2).
+        for h in dropped {
+            let r = json!({"re": h.id, "err": "Not done: the wallet was removed from the computer"});
+            self.remember(&h.id, &h.np, &r, true);
+            self.tell(&h.np, &r);
+        }
+    }
+
+    /// "Obliterate" is removing the app: leave the relays and drop any pairing under way. (The phone link's files go
+    /// with the app's; `ensure_running` won't connect again once nothing is written.)
+    pub fn shutdown(&self) {
+        *self.pairing.lock().unwrap() = None;
+        self.gate.pairing.store(false, std::sync::atomic::Ordering::Relaxed);
+        *self.pool.lock().unwrap() = None;
     }
 
     /// Disconnect when nothing is paired and no pairing is under way (review N8).
@@ -396,8 +422,9 @@ impl Phone {
         }
     }
 
-    /// The desktop's yes or no to the phone that claimed the code.
-    pub fn pair_answer(&self, allow: bool) -> Result<(), String> {
+    /// The desktop's yes or no to the phone that claimed the code. With `replace`, other phones of the same name are
+    /// removed as this one is added (pairing the same phone again leaves its old entry behind).
+    pub fn pair_answer(&self, allow: bool, replace: bool) -> Result<(), String> {
         let (claim, limit) = {
             let mut g = self.pairing.lock().unwrap();
             let p = g.as_mut().ok_or("no pairing under way")?;
@@ -417,9 +444,14 @@ impl Phone {
             self.send(&p_pub, &claim.np, &json!({"re": claim.id, "err": "not allowed"}));
             return Ok(());
         }
+        let mut replaced: Vec<String> = Vec::new();
         {
             let mut d = self.devices.lock().unwrap();
             d.retain(|x| x.np != claim.np && x.p != claim.p);
+            if replace {
+                replaced = d.iter().filter(|x| x.name == claim.name).map(|x| x.np.clone()).collect();
+                d.retain(|x| x.name != claim.name);
+            }
             d.push(Device {
                 name: claim.name.clone(),
                 p: claim.p.clone(),
@@ -431,7 +463,18 @@ impl Phone {
             self.save_devices(&d)?;
             *self.gate.keys.write().unwrap() = d.iter().map(|x| x.np.clone()).collect();
         }
+        if !replaced.is_empty() {
+            let mut h = self.held.lock().unwrap();
+            h.retain(|x| !replaced.contains(&x.np));
+            // The new phone is already saved: a failure here mustn't keep its answer from it.
+            if let Err(e) = self.save_held(&h) {
+                crate::activity::note(&self.node.dir, &format!("couldn't save held trades: {e}"));
+            }
+        }
         crate::activity::note(&self.node.dir, &format!("phone paired: {}", claim.name));
+        if !replaced.is_empty() {
+            crate::activity::note(&self.node.dir, &format!("{} older phone(s) of the same name removed", replaced.len()));
+        }
         self.send(&p_pub, &claim.np, &json!({"re": claim.id, "ok": {"paired": true, "name": claim.name, "limit_sats": limit}}));
         Ok(())
     }

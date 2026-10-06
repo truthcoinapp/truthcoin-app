@@ -49,6 +49,8 @@ pub struct Node {
     pub install: Mutex<install::InstallProgress>,
     /// Start and stop one at a time (review L12).
     op: tokio::sync::Mutex<()>,
+    /// "Obliterate" is removing Truthcoin: no start or install until it is done (obliterate.rs).
+    pub removing: std::sync::atomic::AtomicBool,
 }
 
 /// The node this app started: its pid and program (so a later launch can stop one left by a crash) and its ports
@@ -76,6 +78,7 @@ impl Node {
             child: Mutex::new(None),
             install: Mutex::new(Default::default()),
             op: tokio::sync::Mutex::new(()),
+            removing: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -147,6 +150,9 @@ impl Node {
     /// Start the node and wait until it answers.
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {
         let _op = self.op.lock().await;
+        if self.removing.load(std::sync::atomic::Ordering::SeqCst) || crate::files::stopped() {
+            return Err("Obliterate is removing Truthcoin from this computer".into());
+        }
         if matches!(self.state(), RunState::Running | RunState::Starting) {
             return Ok(());
         }
@@ -167,6 +173,8 @@ impl Node {
     }
 
     async fn start_inner(self: &Arc<Self>) -> Result<(), String> {
+        // A node a crash left on this folder is stopped first, whether or not this start gets far.
+        stop_leftover(&self.dir).await;
         let s = self.settings().locked();
         let program = self.program()?;
         let (eh, ep) = s.enforcer_host_port()?;
@@ -176,7 +184,6 @@ impl Node {
         if crate::settings::BETA_ONLY {
             enforcer::check_ecash_beta(&s.enforcer).await?;
         }
-        stop_leftover(&self.dir).await;
         if !port_free(s.rpc_port) {
             return Err(format!(
                 "Port {} is in use, so the node can't take it. Is another copy of this app running? (Settings › \
@@ -257,10 +264,12 @@ impl Node {
     }
 
     fn kill_child(&self) {
+        // The pid file goes only with the child it names: one left by a crash stays, so it can still be stopped
+        // (security re-review L3).
         if let Some(c) = self.child.lock().unwrap().take() {
             signal(c.pid, Sig::Kill);
+            let _ = std::fs::remove_file(self.dir.join(PID_FILE));
         }
-        let _ = std::fs::remove_file(self.dir.join(PID_FILE));
     }
 
     /// Stop the node: its own `stop`, then SIGTERM, then SIGKILL.
@@ -390,6 +399,11 @@ fn spawn_watched(mut cmd: std::process::Command, exited: Arc<Mutex<Option<String
         })
         .map_err(|e| e.to_string())?;
     rx.recv().map_err(|e| e.to_string())?
+}
+
+/// For Obliterate: stop a node a crash left behind on this data folder.
+pub async fn stop_leftover_in(dir: &Path) {
+    stop_leftover(dir).await
 }
 
 /// A node an earlier run of this app started and left behind (a crash): stop it if it is still our program.

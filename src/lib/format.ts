@@ -25,6 +25,19 @@ export function parseWhole(s: string): number {
   return /^\d+$/.test(t) ? Number(t) : NaN;
 }
 
+/** A size on disk: "812 KB", "1.4 GB". */
+export function bytes(n: number): string {
+  if (n < 1000) return `${n} bytes`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1000;
+  let i = 0;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i++;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
 export function when(unix: number): string {
   if (!unix) return "";
   const d = new Date(unix * 1000);

@@ -3,9 +3,29 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Set once "Obliterate" has removed the app's own files: from then on nothing is written (obliterate.rs).
+static STOPPED: AtomicBool = AtomicBool::new(false);
+
+pub fn stop_writing() {
+    STOPPED.store(true, Ordering::SeqCst);
+}
+
+pub fn stopped() -> bool {
+    STOPPED.load(Ordering::SeqCst)
+}
+
+fn refuse_if_stopped() -> io::Result<()> {
+    if stopped() {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "the app's files have been removed"));
+    }
+    Ok(())
+}
 
 /// Create `dir` (and its parents) and make it readable by this user only.
 pub fn private_dir(dir: &Path) -> io::Result<()> {
+    refuse_if_stopped()?;
     fs::create_dir_all(dir)?;
     #[cfg(unix)]
     {
@@ -17,6 +37,7 @@ pub fn private_dir(dir: &Path) -> io::Result<()> {
 
 /// Write `bytes` to `path`, readable by this user only: a temporary file beside it, synced, then renamed over it.
 pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    refuse_if_stopped()?;
     let tmp = path.with_extension("tmp");
     {
         let mut o = fs::OpenOptions::new();

@@ -119,6 +119,19 @@ new requests a minute and get 30 repeated answers; over that, a new request isn'
 from keys that aren't paired aren't even checked unless a pairing code is live. If the app can't read its trade or
 phone records at start, it sets them aside and phones can't trade until someone looks.
 
+**What the app deletes** (`src-tauri/src/obliterate.rs`, Settings › Obliterate): only what you tick, in two parts.
+Truthcoin is `<app data>/bin`, `<app data>/node` (the wallet's seed with it) and the wallet's records (`trades.json`,
+`withdrawals.json`, `deposits.json`, `wallet-ready`, `node.json`, and their `.tmp`, `.bad-*` and `.seen-*` copies). The
+app is `settings.json`, `activity.log`, `phone/` and `lock` in `<app data>`, the folders the window writes to (Tauri's
+cache and data folders for `dev.truthcoinapp.desktop`; on Linux WebKit's `~/.cache/truthcoin-app` and
+`~/.local/share/truthcoin-app` only when they hold nothing but WebKit's files; on macOS `~/Library/WebKit`, `Caches`,
+`HTTPStorages` and `Saved Application State` for the app's identifier), and, as the app closes, its own program: the
+`.app` it runs from (only with this app's identifier in its `Info.plist`, and not a copy macOS made of a download), or
+the AppImage it runs inside. The list is worked out on the Rust side. The screen sends back each line it showed, and
+nothing is deleted unless a fresh list still matches. A link is removed, never followed. The home folder and anything
+above it are refused. Once the app part has gone, nothing is written to disk again. Pairing the same phone again can
+remove the older phones of the same name (`pair_answer` in `phone/mod.rs`), only when you tick it on the desktop.
+
 **Third-party code:** the Rust crates are pinned by `src-tauri/Cargo.lock`, the npm packages by `package-lock.json`
 and `phone/package-lock.json`. The QR encoder is the app's own (`src/lib/qr.ts`), as is the Nostr client.
 
@@ -143,7 +156,9 @@ Give your assistant the checked-out tree and something like this:
 > from untrusted input;
 > (6) in `phone/`: secrets leaving the page, third-party requests, and anything a desktop or relay could make the page
 > show or do beyond its screens;
-> (7) dependencies in the lockfiles that look out of place.
+> (7) dependencies in the lockfiles that look out of place;
+> (8) Obliterate (`src-tauri/src/obliterate.rs`) deleting anything the map doesn't name, through links, odd data
+> folders or a list that changed after it was shown.
 > For each finding give the file and line, what an attacker needs, and the impact. Say plainly what you did not check.
 
 ## Step 3: check the signature and GitHub's attestation

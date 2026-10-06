@@ -68,8 +68,8 @@ pub fn phone_pair_state(st: St<'_>) -> Value {
 }
 
 #[tauri::command]
-pub fn phone_pair_answer(st: St<'_>, allow: bool) -> Result<(), String> {
-    st.phone.pair_answer(allow)
+pub fn phone_pair_answer(st: St<'_>, allow: bool, replace: Option<bool>) -> Result<(), String> {
+    st.phone.pair_answer(allow, replace.unwrap_or(false))
 }
 
 #[tauri::command]

@@ -5,6 +5,7 @@ mod create;
 mod files;
 mod markets;
 mod node;
+mod obliterate;
 mod phone;
 mod rpc;
 mod settings;
@@ -141,16 +142,20 @@ pub fn run() {
             phone::commands::phone_held_answer,
             phone::commands::phone_set_relays,
             update::update_check,
+            obliterate::obliterate_plan,
+            obliterate::obliterate,
+            obliterate::app_close,
         ])
         .build(tauri::generate_context!())
         .expect("error while building the app");
 
     app.run(|handle, event| {
-        // The node goes down with the app.
+        // The node goes down with the app; then what "Obliterate" left for the exit goes.
         if let tauri::RunEvent::Exit = event {
             if let Some(st) = handle.try_state::<Arc<AppState>>() {
                 st.node.stop_blocking();
             }
+            obliterate::wipe_at_exit();
         }
     });
 }

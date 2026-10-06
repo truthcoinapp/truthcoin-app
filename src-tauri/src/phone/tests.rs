@@ -160,7 +160,7 @@ async fn pair_then_ask_through_a_relay_that_duplicates() {
     let st = desk.pair_state();
     assert_eq!(st["name"], "Testphone");
     assert_eq!(st["code"], pair_code(&d_pub, &ph.p.public_key(), &e.public_key(), &c, &n));
-    desk.pair_answer(true).unwrap();
+    desk.pair_answer(true, false).unwrap();
     let rep = ph.reply(&d_pub, 5).await.expect("the pairing answer");
     assert_eq!(rep["re"], pair_id);
     assert_eq!(rep["ok"]["paired"], true);
@@ -217,7 +217,7 @@ async fn the_code_is_used_once_and_expires() {
     assert_eq!(desk.pair_state()["state"], "waiting");
     desk.pair_cancel();
     assert_eq!(desk.pair_state()["state"], "none");
-    assert!(desk.pair_answer(true).is_err());
+    assert!(desk.pair_answer(true, false).is_err());
     assert!(url.starts_with("https://example.org/#pair="));
 }
 
@@ -309,7 +309,44 @@ async fn two_claims_on_one_code_can_only_be_refused() {
         }
     }
     wait_for(|| desk.pair_state()["state"] == "contested").await;
-    assert!(desk.pair_answer(true).is_err());
-    desk.pair_answer(false).unwrap();
+    assert!(desk.pair_answer(true, false).is_err());
+    desk.pair_answer(false, false).unwrap();
     assert!(desk.devices().is_empty());
+}
+
+/// Pair a new fake phone called `name` through the relay, answering with `replace`.
+async fn pair_named(r: &str, desk: &Arc<Phone>, name: &str, replace: bool) -> FakePhone {
+    let url = desk.pair_start("https://example.org/");
+    wait_for(|| desk.relay_status().iter().any(|s| s.connected)).await;
+    let frag = url.split_once("#pair=").unwrap().1;
+    let qr: Value = serde_json::from_slice(&unb64u(frag).unwrap()).unwrap();
+    let d_pub = parse_pub(qr["d"].as_str().unwrap()).unwrap();
+    let nd = qr["n"].as_str().unwrap().to_string();
+    let c = unb64u(qr["c"].as_str().unwrap()).unwrap();
+    let mut ph = FakePhone::new(r).await;
+    let pt = pad(json!({"t": "pair", "p": pub_b64u(&ph.p.public_key()), "np": ph.nk.pubkey(), "name": name,
+                        "id": "0123456789abcdef0123456789abcdef"}).to_string().as_bytes()).unwrap();
+    let env = seal_pair(&d_pub, &c, &random_secret(), &rand::random(), &pt);
+    let ev = ph.nk.message(&nd, serde_json::to_string(&env).unwrap(), now());
+    ph.publish(ev).await;
+    ph.reply(&d_pub, 5).await.expect("the commitment nonce");
+    wait_for(|| desk.pair_state()["state"] == "claimed").await;
+    desk.pair_answer(true, replace).unwrap();
+    ph.reply(&d_pub, 5).await.expect("the pairing answer");
+    desk.pair_cancel();
+    ph
+}
+
+#[tokio::test]
+async fn pairing_the_same_phone_again_can_replace_its_old_entry() {
+    let r = relay().await;
+    let (_dir, desk) = phone_on(&r);
+    pair_named(&r, &desk, "iPhone", false).await;
+    pair_named(&r, &desk, "Pixel", false).await;
+    pair_named(&r, &desk, "iPhone", false).await;
+    let names = |d: &Arc<Phone>| d.devices().iter().map(|x| x.name.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&desk), ["iPhone", "Pixel", "iPhone"], "kept unless asked");
+    let newest = pair_named(&r, &desk, "iPhone", true).await;
+    assert_eq!(names(&desk), ["Pixel", "iPhone"]);
+    assert_eq!(desk.devices()[1].np, newest.nk.pubkey(), "the new phone stays");
 }

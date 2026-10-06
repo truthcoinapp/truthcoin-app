@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { api, type AppInfo, type NodeStatus, type WalletStatus } from "./lib/api";
+  import { api, type AppInfo, type NodeStatus, type Obliterated, type WalletStatus } from "./lib/api";
   import Setup from "./components/Setup.svelte";
   import Home from "./components/Home.svelte";
   import Markets from "./components/Markets.svelte";
@@ -27,6 +27,13 @@
     try {
       localStorage.setItem("safetySeen", "1");
     } catch {}
+  }
+
+  // After Obliterate: what went, and what the app does next (close, or set up again).
+  let gone: Obliterated | null = null;
+  function onObliterated(e: CustomEvent<Obliterated>) {
+    gone = e.detail;
+    clearInterval(timer);
   }
 
   async function poll() {
@@ -60,7 +67,7 @@
       <img src="/icon.png" alt="" />
       <h1>Truthcoin App</h1>
     </div>
-    {#if node}
+    {#if node && !gone}
       {#if running}
         <span class="pill {synced ? 'ok' : 'warn'}" title="Truthcoin block height">
           {synced ? "" : "syncing · "}block {node.height ?? "…"}
@@ -73,7 +80,42 @@
     {/if}
   </header>
 
-  {#if info && !info.supported}
+  {#if gone}
+    <div class="card" data-testid="obliterated">
+      <h2>{gone.app_removed ? "Removed" : "Truthcoin removed"}</h2>
+      {#if gone.errors.length}
+        <div class="notice error">Some things couldn't be removed:
+          <ul>{#each gone.errors as e}<li>{e}</li>{/each}</ul>
+        </div>
+      {/if}
+      {#if gone.removed.length}
+        <p class="small">Removed:</p>
+        <ul class="small paths">{#each gone.removed as p}<li><code>{p}</code></li>{/each}</ul>
+      {/if}
+      {#if gone.at_exit.length}
+        <p class="small">When the app closes:</p>
+        <ul class="small paths">{#each gone.at_exit as p}<li><code>{p}</code></li>{/each}</ul>
+      {/if}
+      {#if gone.app_removed}
+        {#if !gone.remove_app.at_exit}
+          <p class="small">
+            {#if gone.remove_app.kind === "deb"}
+              Then remove the program: <code>sudo apt remove truthcoin-app</code>
+            {:else if gone.remove_app.kind === "mac"}
+              Then drag Truthcoin App to the Trash.
+            {:else if gone.remove_app.path}
+              Then delete <code>{gone.remove_app.path}</code>.
+            {/if}
+          </p>
+        {/if}
+        <div class="actions"><button class="primary" on:click={() => api.appClose()}>Close the app</button></div>
+      {:else}
+        <p class="small">The app stays. Set it up again to download the node and make a new wallet, or restore one from its
+          recovery words.</p>
+        <div class="actions"><button class="primary" on:click={() => location.reload()}>Set up again</button></div>
+      {/if}
+    </div>
+  {:else if info && !info.supported}
     <div class="notice error">
       L2L doesn't publish a Truthcoin node for this kind of computer (Linux x86-64 and macOS only), so this app can't
       run it here.
@@ -81,7 +123,7 @@
   {:else if !node}
     <p class="muted"><span class="spin"></span> Looking around…</p>
   {:else if setup}
-    <Setup {node} {wallet} on:changed={poll} on:done={() => { walletReady = true; tab = "home"; poll(); }} />
+    <Setup {node} {wallet} on:changed={poll} on:obliterated={onObliterated} on:done={() => { walletReady = true; tab = "home"; poll(); }} />
   {:else}
     {#if !running}
       <div class="notice warn">
@@ -116,7 +158,7 @@
     {:else if tab === "phone"}
       <Phone />
     {:else}
-      <Settings {node} {info} on:changed={poll} />
+      <Settings {node} {info} on:changed={poll} on:obliterated={onObliterated} />
     {/if}
     <nav class="tabs">
       <div class="inner">
@@ -128,3 +170,10 @@
     </nav>
   {/if}
 </main>
+
+<style>
+  .paths {
+    margin: 4px 0 10px 18px;
+    overflow-wrap: anywhere;
+  }
+</style>

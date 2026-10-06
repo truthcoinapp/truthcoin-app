@@ -3,6 +3,7 @@
   import { api, errText, openUrl, type AppInfo, type NodeStatus } from "../lib/api";
   import { num } from "../lib/format";
   import EnforcerAddress from "./EnforcerAddress.svelte";
+  import Obliterate from "./Obliterate.svelte";
 
   export let node: NodeStatus;
   export let info: AppInfo | null;
@@ -159,3 +160,5 @@
     the hash pinned in this app. Not made by L2L.
   </p>
 </div>
+
+<Obliterate {running} on:obliterated />

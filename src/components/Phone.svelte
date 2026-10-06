@@ -19,6 +19,29 @@
   let linkCopied = false;
   let heldNote = "";
   let removeAsk: string | null = null;
+  // Pairing the same phone again (a new Home Screen icon, a cleared browser) leaves its old entry: the newest seen first,
+  // names told apart by when they were paired, old entries of the same name replaced as it pairs, and phones not seen
+  // for a week removed in one go.
+  const WEEK = 7 * 24 * 3600;
+  let replaceSame = true;
+  let tidying = false;
+  $: devices = info?.devices ?? [];
+  $: sorted = [...devices].sort((a, b) => b.last_seen - a.last_seen);
+  $: stale = devices.filter((d) => d.last_seen < Date.now() / 1000 - WEEK);
+  $: sameNamed = pair.name ? devices.filter((d) => d.name === pair.name) : [];
+  $: sameName = sameNamed.length;
+  function label(d: { name: string; paired_at: number }): string {
+    const same = devices.filter((x) => x.name === d.name).length > 1;
+    return same ? `${d.name} (paired ${new Date(d.paired_at * 1000).toLocaleDateString(undefined, { dateStyle: "medium" })})` : d.name;
+  }
+  async function removeStale() {
+    err = "";
+    for (const d of stale) {
+      await api.phoneRevoke(d.np).catch((e) => (err = errText(e)));
+    }
+    tidying = false;
+    load();
+  }
 
   async function load() {
     try {
@@ -48,7 +71,7 @@
   }
   async function answer(allow: boolean) {
     try {
-      await api.pairAnswer(allow);
+      await api.pairAnswer(allow, allow && sameName > 0 && replaceSame);
       pair = await api.pairState();
       load();
     } catch (e) {
@@ -140,6 +163,14 @@
     <p><strong>{pair.name}</strong> asks to pair. Allow it only if the phone shows this same code. If the phone shows no
       code, or a different one, refuse.</p>
     <div class="code">{pair.code}</div>
+    {#if sameName}
+      <label class="check small">
+        <input type="checkbox" bind:checked={replaceSame} />
+        <span>Remove the {sameName === 1 ? "other phone" : `${sameName} other phones`} called “{pair.name}”
+          ({sameNamed.map((d) => `paired ${when(d.paired_at)}, last seen ${when(d.last_seen)}`).join("; ")}). Pairing the
+          same phone again leaves its old entry behind; untick this if that's a different phone.</span>
+      </label>
+    {/if}
     <div class="actions">
       <button class="primary" on:click={() => answer(true)}>Same code: allow</button>
       <button class="danger" on:click={() => answer(false)}>Different: refuse</button>
@@ -159,11 +190,25 @@
 
 {#if info?.devices.length}
   <h3>Paired phones</h3>
+  {#if stale.length}
+    {#if tidying}
+      <div class="notice warn">
+        Remove {stale.length} phone{stale.length === 1 ? "" : "s"} not seen for a week? Each is cut off at once; a phone you
+        still use can pair again.
+        <div class="actions">
+          <button class="danger" on:click={removeStale}>Remove {stale.length}</button>
+          <button on:click={() => (tidying = false)}>Cancel</button>
+        </div>
+      </div>
+    {:else}
+      <p class="small"><button class="link" on:click={() => (tidying = true)}>Remove {stale.length} phone{stale.length === 1 ? "" : "s"} not seen for a week…</button></p>
+    {/if}
+  {/if}
   <div class="card flush list">
-    {#each info.devices as d}
+    {#each sorted as d (d.np)}
       <div class="item">
         <div style="flex:1">
-          <div class="title">{d.name}</div>
+          <div class="title">{label(d)}</div>
           <div class="small muted">Paired {when(d.paired_at)} · last seen {when(d.last_seen)}</div>
           {#if editLimit[d.np] !== undefined}
             <label for="lim-{d.np}" style="margin-top:6px">Daily limit (sats)</label>
@@ -209,3 +254,15 @@
   {/if}
   <p class="small muted">A phone paired earlier learns new relays the next time it connects through an old one.</p>
 </details>
+
+<style>
+  .check {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 10px 0;
+  }
+  .check input {
+    margin-top: 3px;
+  }
+</style>

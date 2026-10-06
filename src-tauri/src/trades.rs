@@ -134,6 +134,11 @@ impl Trades {
         self.save(&l)
     }
 
+    /// "Obliterate" removed the wallet and its records: forget them here too.
+    pub fn forget_all(&self) {
+        self.list.lock().unwrap().clear();
+    }
+
     pub fn all(&self) -> Vec<Trade> {
         self.list.lock().unwrap().clone()
     }

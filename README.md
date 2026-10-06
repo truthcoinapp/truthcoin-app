@@ -95,11 +95,27 @@ A paired phone can see markets, positions and balance, get prices, trade within 
 cap, a sell at its number of shares, a sat each; trades over the limit wait for you on the desktop, for up to an hour)
 and show a receiving address. It can never withdraw, send coins, create markets or see the
 recovery words. The app must be open for the phone to reach it. On iPhone, add the page to the Home Screen first,
-then pair from there.
+then pair from there. Pairing the same phone again offers to remove its old entry, and phones not seen for a week can
+be removed in one go.
 
 The link is described in [`docs/PROTOCOL.md`](docs/PROTOCOL.md): P-256 ECDH, HKDF-SHA256 and AES-256-GCM, each
 message sealed on its own, carried by public Nostr relays (`wss://relay.damus.io`, `wss://nos.lol`,
 `wss://relay.primal.net` by default; change them in the Phone tab › Relays).
+
+## Removing it
+
+**Settings › Obliterate** (or, during setup, **Remove Truthcoin or this app** at the bottom) removes what the app
+put on this computer, in two parts you tick, either or both. It lists every folder with its size first, and asks you to
+type `OBLITERATE`.
+
+- **Truthcoin:** the node program the app downloaded, the node's data (the chain, and your wallet with its seed) and
+  the wallet's records. It shows what the wallet holds first, and you tick that you have its recovery words: the app
+  keeps no copy of them. Removed alone, the app goes back to setting up.
+- **The app:** its settings, activity log and phone link (paired phones stop working), and what its window stored. On
+  a Mac the app removes itself from Applications as it closes, and an AppImage removes its own file. If you installed
+  the `.deb`, remove it afterwards with `sudo apt remove truthcoin-app`.
+
+BitWindow, eCash, the enforcer and a node program you chose yourself are never touched.
 
 ## What the app can't protect
 
