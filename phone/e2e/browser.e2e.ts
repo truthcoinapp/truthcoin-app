@@ -399,6 +399,24 @@ for (const [name, type] of engines) {
         expect(await page.getByTestId('recent').innerText()).toContain(`about ${cost.toLocaleString('en-US')} sats`);
         await shot('home-after-trade');
 
+        // The computer goes quiet (shut down, or the app closed there): the header, a banner and Home say so, with the
+        // time of what's shown, and it all clears when the computer answers again (operator 2026-10-07).
+        expect(await page.getByTestId('conn').textContent()).toContain('Computer connected');
+        desktop.asleep = true;
+        await page.getByRole('button', { name: 'Refresh' }).click();
+        await page.getByTestId('reach').waitFor({ timeout: 45_000 });
+        expect(await page.getByTestId('conn').textContent()).toContain('Computer not answering');
+        expect(await page.getByTestId('reach').textContent()).toContain('The Truthcoin App has to be open on your computer');
+        expect(await page.getByTestId('computer-silent').textContent()).toContain('Not answering since');
+        expect(await page.getByTestId('as-of').textContent()).toMatch(/^as of /);
+        expect(await page.getByTestId('balance').textContent()).toContain(`${total} sats`); // still shown, dated
+        await shot('computer-silent');
+        desktop.asleep = false;
+        await page.getByTestId('reach').getByRole('button', { name: 'Ask again' }).click();
+        await page.getByTestId('reach').waitFor({ state: 'detached', timeout: 30_000 });
+        expect(await page.getByTestId('conn').textContent()).toContain('Computer connected');
+        expect(await page.getByTestId('computer-silent').count()).toBe(0);
+
         // Reload: still paired, with a key no script can read.
         await page.reload();
         await page.getByTestId('home').waitFor();

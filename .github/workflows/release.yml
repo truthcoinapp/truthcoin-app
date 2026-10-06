@@ -57,6 +57,8 @@ jobs:
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
+          # A release never reads its updates from a test server (app_update.rs, the update-test feature).
+          if grep -a -q TRUTHCOIN_UPDATE_URL out/truthcoin-app; then echo "::error::built with update-test"; exit 1; fi
           rm out/truthcoin-app
           test -f "out/truthcoin-app_${V}_amd64.deb"
           test -f "out/Truthcoin-App_${V}_amd64.AppImage"
@@ -96,6 +98,10 @@ jobs:
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
+          # A release never reads its updates from a test server (app_update.rs, the update-test feature).
+          bin="src-tauri/target/universal-apple-darwin/release/bundle/macos/Truthcoin App.app/Contents/MacOS/truthcoin-app"
+          test -f "$bin" || { echo "::error::no program at $bin"; exit 1; }
+          if grep -a -q TRUTHCOIN_UPDATE_URL "$bin"; then echo "::error::built with update-test"; exit 1; fi
           mkdir -p out
           # Tauri names the disk image after productName, with a space; a GitHub release would turn it into a dot,
           # so the published name has a hyphen and SHA256SUMS lists it as published.

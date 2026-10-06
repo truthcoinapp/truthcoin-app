@@ -233,7 +233,6 @@ export const api = {
   receive: () => invoke<{ address: string; deposit_address: string }>("wallet_receive"),
   withdraw: (address: string, amountSats: number, feeSats: number, mainchainFeeSats: number) =>
     invoke<any>("withdraw", { address, amountSats, feeSats, mainchainFeeSats }),
-  updateCheck: () => invoke<{ current: string; newer: string | null; url: string | null; note: string | null }>("update_check"),
   split: (parts: number) => invoke<any>("wallet_split", { parts }),
   markets: () => invoke<MarketRow[]>("markets"),
   settled: () => invoke<SettledRow[]>("settled"),

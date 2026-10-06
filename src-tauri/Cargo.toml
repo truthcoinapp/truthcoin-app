@@ -1,6 +1,6 @@
 [package]
 name = "truthcoin-app"
-version = "0.1.2"
+version = "0.1.3"
 description = "Truthcoin App: run a Truthcoin node and trade its prediction markets, from the desktop or a paired phone"
 authors = ["The Truthcoin App developers"]
 license = "MIT"
@@ -35,9 +35,12 @@ url = "2"
 zeroize = "1"
 # Copy buttons: the clipboard written from Rust (a webview's clipboard can't be relied on)
 arboard = { version = "3.6", default-features = false }
-# Deposits from eCash: the enforcer's gRPC (WalletService.CreateDepositTransaction), messages written here
+# The enforcer's gRPC (where eCash is, the fork check, an address to withdraw to), messages written here
 tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
 prost = "0.13"
+# The app's own updates: the Mac app comes as a .tar.gz (app_update.rs)
+tar = "0.4"
+flate2 = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -48,6 +51,9 @@ tempfile = "3"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# Read the app's own updates from a server on this computer (TRUTHCOIN_UPDATE_URL, TRUTHCOIN_UPDATE_KEY): the end-to-end
+# test only, never a release.
+update-test = []
 
 [profile.release]
 strip = true

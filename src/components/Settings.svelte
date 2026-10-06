@@ -1,9 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import { api, errText, openUrl, type AppInfo, type NodeStatus } from "../lib/api";
+  import { api, errText, type AppInfo, type NodeStatus } from "../lib/api";
   import { num } from "../lib/format";
   import EnforcerAddress from "./EnforcerAddress.svelte";
   import Obliterate from "./Obliterate.svelte";
+  import AppUpdate from "./AppUpdate.svelte";
 
   export let node: NodeStatus;
   export let info: AppInfo | null;
@@ -13,13 +14,6 @@
   let busy = false;
   let adv: Awaited<ReturnType<typeof api.advanced>> | null = null;
   let advSaved = false;
-  let upd: Awaited<ReturnType<typeof api.updateCheck>> | null = null;
-  let checking = false;
-  async function checkUpdate() {
-    checking = true;
-    upd = await api.updateCheck();
-    checking = false;
-  }
 
   async function start() {
     busy = true;
@@ -140,21 +134,7 @@
     <dt>App</dt><dd>Truthcoin App {info?.version}</dd>
     <dt>Data folder</dt><dd><code>{info?.dir}</code></dd>
   </dl>
-  <div class="actions">
-    <button disabled={checking} on:click={checkUpdate}>{#if checking}<span class="spin"></span>{/if} Check for a newer version</button>
-  </div>
-  {#if upd}
-    {#if upd.newer}
-      <div class="notice ok" style="margin-top:10px">
-        Version {upd.newer} is out, signed with this app's release key.
-        {#if upd.url}<button class="link" on:click={() => upd?.url && openUrl(upd.url)}>Its release page</button>{/if}
-      </div>
-    {:else if upd.note}
-      <p class="small muted" style="margin-top:8px">{upd.note}</p>
-    {:else}
-      <p class="small muted" style="margin-top:8px">This is the newest version.</p>
-    {/if}
-  {/if}
+  <AppUpdate />
   <p class="small muted" style="margin-top:8px">
     Open source (MIT). It runs L2L's Truthcoin node, which it downloads from L2L's GitHub releases and checks against
     the hash pinned in this app. Not made by L2L.

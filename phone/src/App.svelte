@@ -8,6 +8,7 @@
     kick,
     onOtherTab,
     pairing,
+    reach,
     refreshHome,
     relays,
     startSession,
@@ -15,6 +16,7 @@
     storage,
   } from './lib/session';
   import { attemptFor, type PairAttempt } from './lib/pairing';
+  import { clock, reachBanner, reachState, type ReachState } from './lib/reach';
   import { dropAttempt, dropOtherPending, loadAttempt, loadPairing, savePairing } from './lib/store';
   import type { Market as MarketData, MarketSummary, Side } from './lib/validate';
   import Home from './components/Home.svelte';
@@ -166,6 +168,20 @@
   ];
 
   $: online = $relays.some((r) => r.state === 'open');
+  // The header and the banner say whether the computer answers, not just whether a relay is up (reach.ts).
+  let now = Date.now();
+  const clockTimer = setInterval(() => (now = Date.now()), 30_000);
+  onDestroy(() => clearInterval(clockTimer));
+  $: rs = reachState($reach, online, now);
+  $: banner = reachBanner($reach, online, now);
+  const CONN: Record<ReachState, string> = {
+    connecting: 'Connecting…',
+    offline: 'No connection',
+    unknown: 'Reaching your computer…',
+    answering: 'Computer connected',
+    silent: 'Computer not answering',
+    quiet: '',
+  };
 </script>
 
 <svelte:window on:popstate={onPop} on:hashchange={onHash} on:online={kick} />
@@ -176,8 +192,10 @@
 <header>
   <div class="brand"><Mark size={28} /><span>Truthcoin</span></div>
   {#if $pairing && screen !== 'pair'}
-    <span class="conn" class:on={online} data-testid="conn">
-      <span class="dot" aria-hidden="true"></span>{online ? 'Connected' : 'Connecting…'}
+    <span class="conn" class:on={rs === 'answering'} class:off={rs === 'silent' || rs === 'offline'} data-testid="conn">
+      <span class="dot" aria-hidden="true"></span>{rs === 'quiet' && $reach.lastAnswer !== null
+        ? `Last heard ${clock($reach.lastAnswer, now)}`
+        : CONN[rs]}
     </span>
   {/if}
 </header>
@@ -186,6 +204,12 @@
 {/if}
 </div>
 
+{#if $pairing && !forgetting && screen !== 'pair' && screen !== 'loading' && banner}
+  <div class="card held small notice" role="alert" data-testid="reach">
+    <strong>{banner.title}</strong>
+    <p>{banner.body} <button class="link" on:click={kick}>Ask again</button></p>
+  </div>
+{/if}
 {#if loadError}<p class="card bad small notice" data-testid="load-error">{loadError}</p>{/if}
 {#if notice}<p class="card held small notice" data-testid="notice">{notice}</p>{/if}
 
@@ -276,6 +300,12 @@
   }
   .conn.on .dot {
     background: var(--accent);
+  }
+  .conn.off {
+    color: var(--warn);
+  }
+  .conn.off .dot {
+    background: var(--error);
   }
   .notice {
     margin-bottom: 12px;

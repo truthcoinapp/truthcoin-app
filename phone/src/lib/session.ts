@@ -7,8 +7,9 @@ import { BusyError, NoAnswerError, PhoneLink, ReplyError, UnsureError } from './
 import { linkKeys, type Pairing } from './pairing';
 import type { RelayInfo, WsFactory } from './relaypool';
 import { forgetAll, idbKv, loadPairing, savePairing, type Kv } from './store';
+import { answered, noAnswer, NO_REACH, relaysBack, type Reach } from './reach';
 import { cleanName } from './text';
-import type { Balance, MarketsPage, Positions, Receive, Status, TradeRecord } from './validate';
+import { BadAnswerError, type Balance, type MarketsPage, type Positions, type Receive, type Status, type TradeRecord } from './validate';
 import type { TradeFlow } from './flows';
 
 /** `waiting`: still under way, with something to say (busy, or asking again). */
@@ -74,6 +75,8 @@ export const trades = writable<TradeRecord[] | null>(null);
 export const markets = writable<MarketsPage | null>(null);
 export const address = writable<Receive | null>(null);
 export const flows = writable<TradeFlow[]>([]);
+/** Whether the computer is answering (reach.ts): the relays being up doesn't say. */
+export const reach = writable<Reach>(NO_REACH);
 
 let kv: Kv | null = null;
 let link: PhoneLink | null = null;
@@ -130,11 +133,28 @@ const tracker: Tracker = (m, retry) => {
     render();
   };
   return {
-    ok: () => update('answered', '', null),
-    held: (text) => update('held', text, null),
-    busy: () => update('waiting', 'Your computer is busy; asking again in a moment.', null),
-    again: () => update('waiting', "Your computer hasn't answered yet (it may be reconnecting). Asking again…", null),
+    ok: () => {
+      reach.update((r) => answered(r, Date.now()));
+      update('answered', '', null);
+    },
+    held: (text) => {
+      reach.update((r) => answered(r, Date.now()));
+      update('held', text, null);
+    },
+    busy: () => {
+      reach.update((r) => answered(r, Date.now()));
+      update('waiting', 'Your computer is busy; asking again in a moment.', null);
+    },
+    again: () => {
+      // The first try went unanswered: say so now, not after the second (a minute in all).
+      reach.update((r) => noAnswer(r, Date.now(), 1));
+      update('waiting', "Your computer hasn't answered. Is the Truthcoin App open there? Asking again…", null);
+    },
     fail: (err) => {
+      // The computer said something (a refusal, "busy"): it is there. No answer through a relay: it isn't, for now.
+      if (err instanceof ReplyError || err instanceof BusyError || err instanceof BadAnswerError)
+        reach.update((r) => answered(r, Date.now()));
+      else if (err instanceof NoAnswerError) reach.update((r) => noAnswer(r, Date.now(), err.accepted));
       const s: LastState =
         err instanceof NoAnswerError || err instanceof UnsureError
           ? 'no-answer'
@@ -153,16 +173,28 @@ export function startSession(p: Pairing, o: { ws?: WsFactory } = {}) {
   stopSession();
   pairing.set(p);
   let wasOpen = true;
+  let everOpen = false;
   link = new PhoneLink(linkKeys(p), p.relays, {
     ws: o.ws,
     onRelays: (r) => {
       relays.set(r);
       // A relay back after none was open: ask again for whatever failed for want of one.
       const open = r.some((x) => x.state === 'open');
-      if (open && !wasOpen) retryFailed();
+      if (open && !wasOpen) {
+        // What the computer said before doesn't say it's there now: the header waits for a fresh answer, and after a
+        // drop (not the first connection, which the session's own status request covers) one is asked for at once,
+        // whatever screen is showing (re-review N3).
+        reach.update((x) => relaysBack(x, Date.now()));
+        retryFailed();
+        if (everOpen) void refreshStatus().catch(() => undefined);
+      }
+      if (open) everOpen = true;
       wasOpen = open;
     },
-    onLateReply: (r) => void tradeFlows?.late(r),
+    onLateReply: (r, sentAt) => {
+      reach.update((x) => answered(x, Math.min(sentAt, Date.now())));
+      void tradeFlows?.late(r);
+    },
   });
   api = new Api(link, tracker);
   tradeFlows = new TradeFlows(link, storage(), p.npub, tracker);
@@ -206,6 +238,7 @@ export function stopSession() {
   markets.set(null);
   address.set(null);
   last.set(null);
+  reach.set(NO_REACH);
   flows.set([]);
   relays.set([]);
   pairing.set(null);
@@ -288,9 +321,12 @@ export function refreshHome(o: { trades?: boolean; maxAgeMs?: number } = {}): Pr
     a.positions().then((p) => positions.set(p)),
   ];
   if (o.trades !== false) asks.push(a.trades().then((t) => trades.set(t)));
-  const run: Promise<void> = Promise.allSettled(asks).then(() => {
+  const run: Promise<void> = Promise.allSettled(asks).then((rs) => {
     if (homeBusy === run) homeBusy = null;
-    homeAt = Date.now();
+    // A refresh that went unanswered doesn't count as fresh: "Ask again" and showing Home then ask at once. (A refusal
+    // or "busy" is an answer: asking again at once would only add to the desktop's load.)
+    const missed = rs.some((r) => r.status === 'rejected' && (r.reason instanceof NoAnswerError || r.reason instanceof UnsureError));
+    homeAt = missed ? 0 : Date.now();
     homeDirty = false;
   });
   homeBusy = run;

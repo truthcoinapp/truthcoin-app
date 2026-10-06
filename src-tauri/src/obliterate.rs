@@ -20,7 +20,7 @@ const TRUTHCOIN_ENTRIES: &[&str] =
     &["bin", "node", "node.json", "wallet-ready", "trades.json", "withdrawals.json", "deposits.json"];
 /// The app's own entries: settings, the activity log, the phone link (this computer's key and the paired phones), and
 /// the lock that keeps a second copy from starting.
-const APP_ENTRIES: &[&str] = &["settings.json", "activity.log", "phone", "lock"];
+const APP_ENTRIES: &[&str] = &["settings.json", "activity.log", "phone", "lock", "restarting"];
 
 /// What WebKitGTK keeps in a folder: its cache, storage and HSTS list. A folder named after the program (not the app's
 /// identifier) is listed only if it holds nothing else, and these alone are removed from the app's folder on Linux when
@@ -585,6 +585,9 @@ fn blocked(st: &crate::state::AppState) -> Option<String> {
     if st.node.install.lock().unwrap().running {
         return Some("The Truthcoin node is being downloaded. Let it finish first.".into());
     }
+    if crate::app_update::updating() {
+        return Some("The app is updating itself and restarts when it's done. Let it finish first.".into());
+    }
     None
 }
 
@@ -646,6 +649,10 @@ pub async fn obliterate(
     let mut guard = Removing { node: &st.node, keep: false };
     if st.node.install.lock().unwrap().running {
         return Err("The Truthcoin node is being downloaded. Let it finish first. Nothing was removed.".into());
+    }
+    // The updater sets its flag and then looks at `removing`: one of the two always stands back.
+    if crate::app_update::updating() {
+        return Err("The app is updating itself and restarts when it's done. Nothing was removed.".into());
     }
     let parts: Vec<Part> = [(truthcoin, Part::Truthcoin), (the_app, Part::App)]
         .into_iter()

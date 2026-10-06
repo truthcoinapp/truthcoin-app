@@ -4,7 +4,9 @@
   import { last } from '../lib/session';
 
   let now = Date.now();
-  const t = setInterval(() => (now = Date.now()), 15_000);
+  // Often enough that a request with no answer after 10 s says so (an answer usually takes a second or two).
+  const t = setInterval(() => (now = Date.now()), 5_000);
+  const SLOW_MS = 10_000;
   onDestroy(() => clearInterval(t));
 
   function ago(at: number, n: number): string {
@@ -19,7 +21,13 @@
   <div class="line {$last.state}" role="status" aria-live="polite" data-testid="last-line">
     {#if $last.state === 'asking'}
       <span class="spinner small-spin" aria-hidden="true"></span>
-      <span class="grow">Asking your computer{$last.what ? ` ${$last.what}` : ''}…</span>
+      <span class="grow"
+        >{now - $last.at > SLOW_MS ? 'Still asking your computer' : 'Asking your computer'}{$last.what ? ` ${$last.what}` : ''}…{now -
+          $last.at >
+        SLOW_MS
+          ? ' Is the Truthcoin App open there?'
+          : ''}</span
+      >
     {:else if $last.state === 'waiting'}
       <span class="spinner small-spin" aria-hidden="true"></span>
       <span class="grow">{$last.text}</span>

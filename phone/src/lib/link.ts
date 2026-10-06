@@ -156,7 +156,8 @@ export interface LinkOptions {
   ws?: WsFactory;
   now?: () => number;
   /** A reply under an id nobody is waiting for (a late answer, or one to a request from before a reload). */
-  onLateReply?: (r: Reply) => void;
+  /** `sentAt`: when the desktop sent it (ms, from its signed event), which may be long ago: relays keep events. */
+  onLateReply?: (r: Reply, sentAt: number) => void;
   onRelays?: (relays: RelayInfo[]) => void;
   log?: (msg: string) => void;
   backoffMin?: number;
@@ -310,11 +311,11 @@ export class PhoneLink {
     } catch {
       return; // doesn't open: dropped without an answer
     }
-    if (reply) this.dispatch(reply);
+    if (reply) this.dispatch(reply, ev.created_at * 1000);
   }
 
   /** A reply that opened: to its waiting request, unless that id already had its final answer (a repeat). */
-  dispatch(r: Reply) {
+  dispatch(r: Reply, sentAt = Date.now()) {
     if (r.k === 'nonce') return; // pairing's, not a request's
     if (this.done.has(r.re)) return;
     const w = this.waiting.get(r.re);
@@ -323,7 +324,7 @@ export class PhoneLink {
     this.lastHeard = Date.now();
     if (!w) {
       if (final) this.remember(r.re);
-      this.opts.onLateReply?.(r);
+      this.opts.onLateReply?.(r, sentAt);
       return;
     }
     if (isBusy(r)) {

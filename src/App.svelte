@@ -6,6 +6,8 @@
   import Markets from "./components/Markets.svelte";
   import Phone from "./components/Phone.svelte";
   import Settings from "./components/Settings.svelte";
+  import AppUpdate from "./components/AppUpdate.svelte";
+  import { startAppUpdateChecks } from "./lib/appUpdate";
 
   let info: AppInfo | null = null;
   let node: NodeStatus | null = null;
@@ -50,6 +52,8 @@
 
   onMount(async () => {
     info = await api.appInfo();
+    // The app's own updates: checked shortly after start and twice a day; a notice when a signed release is out.
+    startAppUpdateChecks();
     walletReady = info.wallet_ready;
     await poll();
     timer = setInterval(poll, 4000);
@@ -80,6 +84,7 @@
     {/if}
   </header>
 
+  {#if !gone}<AppUpdate notice />{/if}
   {#if gone}
     <div class="card" data-testid="obliterated">
       <h2>{gone.app_removed ? "Removed" : "Truthcoin removed"}</h2>

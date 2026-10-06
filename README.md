@@ -94,7 +94,8 @@ Both screens then show the same six-digit code: allow the phone only if they mat
 A paired phone can see markets, positions and balance, get prices, trade within its daily limit (a buy counts at its
 cap, a sell at its number of shares, a sat each; trades over the limit wait for you on the desktop, for up to an hour)
 and show a receiving address. It can never withdraw, send coins, create markets or see the
-recovery words. The app must be open for the phone to reach it. On iPhone, add the page to the Home Screen first,
+recovery words. The app must be open for the phone to reach it: the phone's header says whether your computer is
+answering, and when it isn't, a banner says so and dates what the phone still shows. On iPhone, add the page to the Home Screen first,
 then pair from there. Pairing the same phone again offers to remove its old entry, and phones not seen for a week can
 be removed in one go.
 
@@ -148,8 +149,9 @@ gh attestation verify <package> --repo truthcoinapp/truthcoin-app
 Each release's git tag is signed with the same key, so you can check that the source you read is the release's
 ([`VERIFY.md`](VERIFY.md), step 1). The `.deb` rebuilds byte for byte from the tag (step 4 there).
 
-The app's own "Check for a newer version" (Settings) trusts only a release whose `SHA256SUMS` carries that
-signature.
+The app updates itself only to a release whose `SHA256SUMS` carries that signature. It checks shortly after it
+starts and twice a day, and offers **Update and restart**. An AppImage or a Mac app replaces itself and restarts. A
+`.deb` is updated with the new `.deb` from the release page.
 
 ## Development
 

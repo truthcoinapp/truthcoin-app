@@ -1,4 +1,5 @@
 mod activity;
+mod app_update;
 mod clipboard;
 mod commands;
 mod create;
@@ -41,8 +42,28 @@ pub fn keep_inherited_files_from_children() {
     }
 }
 
-/// Hold an exclusive lock on `<dir>/lock` for the app's life. False if another copy holds it.
+/// Hold an exclusive lock on `<dir>/lock` for the app's life. False if another copy holds it. A copy started by
+/// "Update and restart" (app_update.rs writes `<dir>/restarting` just before) waits up to 10 s for the old one to let
+/// go of it. A marker older than a minute is left over from something else and doesn't count.
 fn single_instance(dir: &std::path::Path) -> bool {
+    let marker = dir.join(app_update::RESTARTING);
+    let restarted = std::fs::metadata(&marker)
+        .and_then(|m| m.modified())
+        .is_ok_and(|t| t.elapsed().is_ok_and(|age| age < std::time::Duration::from_secs(60)));
+    let tries = if restarted { 50 } else { 1 };
+    for i in 0..tries {
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        if try_lock(dir) {
+            let _ = std::fs::remove_file(&marker);
+            return true;
+        }
+    }
+    false
+}
+
+fn try_lock(dir: &std::path::Path) -> bool {
     static LOCK: std::sync::OnceLock<std::fs::File> = std::sync::OnceLock::new();
     let Ok(f) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("lock")) else {
         return true;
@@ -89,6 +110,9 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move { p.ensure_running() });
             }
             app.manage(st);
+            app.manage(Arc::new(app_update::AppUpdater::new()?));
+            // What an interrupted update left beside the app goes, once an hour old.
+            std::thread::spawn(app_update::sweep_leftovers);
             // A node already installed starts with the app.
             if node.installed() {
                 tauri::async_runtime::spawn(async move {
@@ -141,7 +165,9 @@ pub fn run() {
             phone::commands::phone_set_limit,
             phone::commands::phone_held_answer,
             phone::commands::phone_set_relays,
-            update::update_check,
+            app_update::app_update_check,
+            app_update::app_update_start,
+            app_update::app_update_progress,
             obliterate::obliterate_plan,
             obliterate::obliterate,
             obliterate::app_close,

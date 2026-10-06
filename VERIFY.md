@@ -51,7 +51,16 @@ your user only (`src-tauri/src/files.rs`).
   the app runs per data folder (`<app data>/lock`).
 
 **Signature:** the release's `SHA256SUMS` is signed with `ssh-keygen -Y sign -n truthcoinapp-sums`; the update check
-(`src-tauri/src/update.rs`) refuses any other namespace, any other key, and URLs outside this repository.
+(`src-tauri/src/update.rs`) refuses any other namespace and any other key.
+
+**The app's own updates** (`src-tauri/src/app_update.rs`): the latest release is offered only once its `SHA256SUMS`
+passes that check, and only if it's newer. "Update and restart" downloads this system's package, keeps it only if
+its SHA-256 is the one on its line in the signed `SHA256SUMS`, and only then puts it in place. On Linux it renames
+the new AppImage over the one it runs from. On a Mac it unpacks the new `Truthcoin App.app` beside the old one, checks
+its identifier, version and program, and exchanges the two. Then it restarts. It replaces itself only where no other
+user could change the files, never a `.deb` (that one points to the release page), and never after Obliterate. A
+build with the `update-test` Cargo feature (never released) reads its releases from a server on this computer, for
+the end-to-end test.
 
 **eCash beta only** (`src-tauri/src/settings.rs`, `BETA_ONLY`, true in every release build): the Truthcoin network is
 forced to `betanet`, the node program to the pinned release with no extra arguments, whatever `settings.json` says;
@@ -77,8 +86,10 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
 **Every network contact:**
 - The node's RPC and the enforcer's gRPC, on this computer (or where Settings › Advanced points).
 - `github.com` (and its download host): the node's release, when you press Install.
-- `api.github.com/repos/truthcoinapp/truthcoin-app/releases/latest` and that release's `SHA256SUMS` and `SHA256SUMS.sig`:
-  only when you press "Check for a newer version" (`src-tauri/src/update.rs`).
+- `github.com/truthcoinapp/truthcoin-app/releases/latest/download/SHA256SUMS` and `SHA256SUMS.sig` (and GitHub's
+  download host): shortly after the app starts, twice a day while it runs, and when you press "Check for a newer
+  version". The new package (`…/releases/download/v<version>/…`) only when you press "Update and restart"
+  (`src-tauri/src/app_update.rs`).
 - The Nostr relays in Settings › Phone (three public ones by default), over `wss://`, only while a phone is paired
   or pairing is under way (`src-tauri/src/phone/relays.rs`).
 - Links the app opens in your browser go through the shell plugin, limited by the `open` pattern in
@@ -158,7 +169,9 @@ Give your assistant the checked-out tree and something like this:
 > show or do beyond its screens;
 > (7) dependencies in the lockfiles that look out of place;
 > (8) Obliterate (`src-tauri/src/obliterate.rs`) deleting anything the map doesn't name, through links, odd data
-> folders or a list that changed after it was shown.
+> folders or a list that changed after it was shown;
+> (9) the self-updater (`src-tauri/src/app_update.rs`) putting in place anything the release's signed `SHA256SUMS`
+> doesn't vouch for, or replacing files other than the app's own.
 > For each finding give the file and line, what an attacker needs, and the impact. Say plainly what you did not check.
 
 ## Step 3: check the signature and GitHub's attestation

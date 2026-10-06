@@ -91,8 +91,11 @@ export class TestDesktop {
     await this.pool.publish(messageEvent(this.nsec, to, envelopeJson(env), Math.floor(Date.now() / 1000)));
   }
 
+  /** Answer nothing for now, as a computer that shut down or closed the app (set back to answer again). */
+  asleep = false;
+
   private async onEvent(e: NostrEvent) {
-    if (this.o.silent || tag(e, 'p') !== this.npub) return;
+    if (this.o.silent || this.asleep || tag(e, 'p') !== this.npub) return;
     const env = parseEnvelope(e.content);
     if (!env) return;
     const phone = this.phones.get(e.pubkey);

@@ -189,6 +189,9 @@ pub async fn node_install(st: St<'_>) -> Result<(), String> {
         if st.node.removing.load(std::sync::atomic::Ordering::SeqCst) || crate::files::stopped() {
             return Err("Obliterate is removing Truthcoin from this computer".into());
         }
+        if crate::app_update::updating() {
+            return Err("The app is updating itself and restarts in a moment".into());
+        }
         *p = install::InstallProgress { running: true, ..Default::default() };
     }
     let node = st.node.clone();

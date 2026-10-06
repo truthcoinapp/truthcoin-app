@@ -13,7 +13,8 @@
     settledLine,
     stateWord,
   } from '../lib/format';
-  import { balance, flows, HOME_FRESH_MS, homeOnScreen, positions, refreshHome, status, trades } from '../lib/session';
+  import { balance, flows, HOME_FRESH_MS, homeOnScreen, positions, reach, refreshHome, relays, status, trades } from '../lib/session';
+  import { clock, reachState } from '../lib/reach';
   import type { Status } from '../lib/validate';
   import FlowCard from './FlowCard.svelte';
   import HomeScreenHint from './HomeScreenHint.svelte';
@@ -45,6 +46,15 @@
       homeOnScreen(false);
     };
   });
+
+  // While the computer isn't answering, what Home shows is what it last said: each card says when that was.
+  let now = Date.now();
+  onMount(() => {
+    const t = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(t);
+  });
+  $: rs = reachState($reach, $relays.some((r) => r.state === 'open'), now);
+  $: asOf = rs !== 'answering' && $reach.lastAnswer !== null ? `as of ${clock($reach.lastAnswer, now)}` : '';
 
   function nodeLine(s: Status): string {
     const h = s.height === null ? '' : ` · block ${fmtHeight(s.height)}`;
@@ -99,7 +109,7 @@
   {/each}
 
   <div class="card stack-sm" data-testid="balance">
-    <h3>Balance</h3>
+    <div class="row"><h3 class="grow">Balance</h3>{#if asOf && $balance}<span class="small muted" data-testid="as-of">{asOf}</span>{/if}</div>
     {#if $balance}
       <!-- What the wallet holds once what's moving settles; under it, only what isn't zero. -->
       <p class="big num">{fmtSats($balance.total)}</p>
@@ -124,8 +134,20 @@
 
   <div class="card stack-sm" data-testid="computer">
     <h3>Your computer</h3>
+    {#if rs === 'silent'}
+      <p class="warn" data-testid="computer-silent">
+        Not answering since {clock($reach.silentSince ?? now, now)}{$reach.lastAnswer !== null &&
+        clock($reach.lastAnswer, now) !== clock($reach.silentSince ?? now, now)
+          ? `; last heard from at ${clock($reach.lastAnswer, now)}`
+          : ''}. Is the Truthcoin App open on it?
+      </p>
+    {:else if rs === 'offline'}
+      <p class="warn">This phone can't reach the relays, so it can't ask.</p>
+    {/if}
     {#if $status}
-      <p class:warn={$status.node !== 'running' || !$status.synced}>{nodeLine($status)}</p>
+      {#if rs !== 'silent' && rs !== 'offline'}
+        <p class:warn={$status.node !== 'running' || !$status.synced}>{nodeLine($status)}</p>
+      {/if}
       <dl class="facts">
         <dt>Left today for trades</dt>
         <dd>{fmtNum($status.leftSats)} of {fmtSats($status.limitSats)}</dd>
@@ -143,6 +165,7 @@
         <span class="small muted num">worth about {fmtSats($positions.totalValue)}</span>
       {/if}
     </div>
+    {#if asOf && $positions}<p class="small muted">{asOf}</p>{/if}
     {#if !$positions}
       <p class="muted">—</p>
     {:else if !$positions.positions.length}
