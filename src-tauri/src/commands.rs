@@ -18,6 +18,8 @@ pub struct AppInfo {
     pub node_version: &'static str,
     pub supported: bool,
     pub dir: String,
+    /// The app checks for a newer version by itself (Settings › About).
+    pub update_check: bool,
 }
 
 #[tauri::command]
@@ -29,6 +31,7 @@ pub fn app_info(st: St<'_>) -> AppInfo {
         node_version: pins::NODE_VERSION,
         supported: pins::this_computer().is_some(),
         dir: st.dir.display().to_string(),
+        update_check: st.node.settings().update_check,
     }
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The app's own updates (v0.1.3, lib/appUpdate.ts). As a notice at the top of the app when a signed release is out
   // (`notice`), and in Settings › About.
+  import { invoke } from "@tauri-apps/api/core";
   import { openUrl } from "../lib/api";
   import {
     appUpdate,
@@ -13,6 +14,18 @@
   } from "../lib/appUpdate";
 
   export let notice = false;
+  /** Settings: "Check for updates by itself", as saved (null: not shown). */
+  export let auto: boolean | null = null;
+  let autoErr = "";
+  async function setAuto(on: boolean) {
+    autoErr = "";
+    try {
+      await invoke("app_update_auto", { on });
+      auto = on;
+    } catch (e) {
+      autoErr = String(e);
+    }
+  }
 
   let checking = false;
   let checked = false;
@@ -86,9 +99,16 @@
       </div>
     {/if}
     {#if !notice}
+      {#if auto !== null}
+        <label class="check small">
+          <input type="checkbox" checked={auto} on:change={(e) => setAuto(e.currentTarget.checked)} data-testid="update-auto" />
+          <span>Check for a newer version by itself: shortly after the app starts, and twice a day. Each check asks GitHub
+            for the latest release's checksums. Off, it checks only when you press the button.</span>
+        </label>
+        {#if autoErr}<p class="small error">{autoErr}</p>{/if}
+      {/if}
       <p class="small muted" style="margin-top:8px">
-        The app checks GitHub for a newer version when it starts, and twice a day while it runs. It installs one only
-        when the release carries the signature of this app's release key.
+        The app installs a new version only when the release carries the signature of this app's release key.
       </p>
     {/if}
   </div>
@@ -108,5 +128,14 @@
   }
   p {
     margin: 0 0 8px;
+  }
+  .check {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: 10px;
+  }
+  .check input {
+    margin-top: 3px;
   }
 </style>

@@ -87,8 +87,8 @@ and before every start `node/enforcer.rs` (`check_ecash_beta`) asks the enforcer
 - The node's RPC and the enforcer's gRPC, on this computer (or where Settings › Advanced points).
 - `github.com` (and its download host): the node's release, when you press Install.
 - `github.com/truthcoinapp/truthcoin-app/releases/latest/download/SHA256SUMS` and `SHA256SUMS.sig` (and GitHub's
-  download host): shortly after the app starts, twice a day while it runs, and when you press "Check for a newer
-  version". The new package (`…/releases/download/v<version>/…`) only when you press "Update and restart"
+  download host): shortly after the app starts and twice a day while it runs, unless "Check for a newer version by
+  itself" is off (Settings › About); and when you press "Check for a newer version". The new package (`…/releases/download/v<version>/…`) only when you press "Update and restart"
   (`src-tauri/src/app_update.rs`).
 - The Nostr relays in Settings › Phone (three public ones by default), over `wss://`, only while a phone is paired
   or pairing is under way (`src-tauri/src/phone/relays.rs`).

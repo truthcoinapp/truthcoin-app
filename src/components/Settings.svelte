@@ -134,7 +134,7 @@
     <dt>App</dt><dd>Truthcoin App {info?.version}</dd>
     <dt>Data folder</dt><dd><code>{info?.dir}</code></dd>
   </dl>
-  <AppUpdate />
+  <AppUpdate auto={info?.update_check ?? null} />
   <p class="small muted" style="margin-top:8px">
     Open source (MIT). It runs L2L's Truthcoin node, which it downloads from L2L's GitHub releases and checks against
     the hash pinned in this app. Not made by L2L.

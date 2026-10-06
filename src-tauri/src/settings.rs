@@ -37,6 +37,8 @@ pub struct Settings {
     pub phone_daily_limit_sats: u64,
     /// Where the phone page is served from (the pairing QR code opens it).
     pub phone_page: String,
+    /// Check GitHub for a newer version by itself (at start and twice a day). Off: only when asked in Settings.
+    pub update_check: bool,
 }
 
 impl Default for Settings {
@@ -52,6 +54,7 @@ impl Default for Settings {
             relays: DEFAULT_RELAYS.iter().map(|s| s.to_string()).collect(),
             phone_daily_limit_sats: 100_000,
             phone_page: DEFAULT_PHONE_PAGE.into(),
+            update_check: true,
         }
     }
 }

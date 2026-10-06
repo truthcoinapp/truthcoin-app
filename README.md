@@ -150,8 +150,8 @@ Each release's git tag is signed with the same key, so you can check that the so
 ([`VERIFY.md`](VERIFY.md), step 1). The `.deb` rebuilds byte for byte from the tag (step 4 there).
 
 The app updates itself only to a release whose `SHA256SUMS` carries that signature. It checks shortly after it
-starts and twice a day, and offers **Update and restart**. An AppImage or a Mac app replaces itself and restarts. A
-`.deb` is updated with the new `.deb` from the release page.
+starts and twice a day (Settings › About turns that off), and offers **Update and restart**. An AppImage or a Mac
+app replaces itself and restarts. A `.deb` is updated with the new `.deb` from the release page.
 
 ## Development
 

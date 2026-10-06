@@ -479,8 +479,13 @@ fn check_result(found: Result<Option<Release>, String>, how: &Install) -> Check 
     }
 }
 
+/// `force`: asked for in Settings (always asks GitHub). Otherwise the app's own check, which is skipped, without any
+/// network contact, when "Check for updates by itself" is off.
 #[tauri::command]
-pub async fn app_update_check(upd: State<'_, Arc<AppUpdater>>, force: bool) -> Result<Check, String> {
+pub async fn app_update_check(upd: State<'_, Arc<AppUpdater>>, st: St<'_>, force: bool) -> Result<Check, String> {
+    if !force && !st.node.settings().update_check {
+        return Ok(check_result(Ok(None), &install_kind().await));
+    }
     if !force {
         if let Some((at, c)) = upd.checked.lock().unwrap().as_ref() {
             if at.elapsed() < CHECK_AGE {
@@ -492,6 +497,17 @@ pub async fn app_update_check(upd: State<'_, Arc<AppUpdater>>, force: bool) -> R
     let c = check_result(found, &install_kind().await);
     *upd.checked.lock().unwrap() = Some((Instant::now(), c.clone()));
     Ok(c)
+}
+
+/// "Check for updates by itself" on or off.
+#[tauri::command]
+pub fn app_update_auto(st: St<'_>, on: bool) -> Result<(), String> {
+    let mut s = st.node.settings.lock().unwrap();
+    let mut n = s.clone();
+    n.update_check = on;
+    n.save(&st.dir).map_err(|e| e.to_string())?;
+    *s = n;
+    Ok(())
 }
 
 #[tauri::command]

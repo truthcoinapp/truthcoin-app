@@ -17,6 +17,8 @@ export interface AppInfo {
   beta_only: boolean;
   /** This data folder's wallet has been set up. */
   wallet_ready: boolean;
+  /** The app checks for a newer version by itself. */
+  update_check: boolean;
 }
 
 export interface NodeStatus {

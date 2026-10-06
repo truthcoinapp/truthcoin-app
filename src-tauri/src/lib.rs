@@ -168,6 +168,7 @@ pub fn run() {
             app_update::app_update_check,
             app_update::app_update_start,
             app_update::app_update_progress,
+            app_update::app_update_auto,
             obliterate::obliterate_plan,
             obliterate::obliterate,
             obliterate::app_close,
