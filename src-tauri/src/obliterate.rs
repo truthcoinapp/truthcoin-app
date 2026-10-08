@@ -246,7 +246,10 @@ pub fn plan_items(p: &Places) -> Result<Vec<Item>, String> {
     }
     let node = p.app_dir.join("node");
     if exists(&node) && (!p.app_dir_from_env || node.join("app-node.log").is_file()) {
-        let note = "The chain it downloaded, and your Truthcoin wallet with its seed.".to_string();
+        let mut note = "The chain it downloaded, and your Truthcoin wallet with its seed.".to_string();
+        if node.join(crate::node::SET_ASIDE).is_dir() {
+            note.push_str(" Also Truthcoin 0.19's chain and wallet, set aside when the node moved to 0.20.");
+        }
         items.push(item("node-data", Part::Truthcoin, "The Truthcoin node's data", &node, note, false));
     }
     // The node's pid file comes and goes as the node starts and stops, so it never makes a line of its own (it goes
@@ -777,6 +780,34 @@ mod tests {
         }
         for n in ["localstorage", "notes.txt", "trades", "settings.json.bak", "nodes", "trades.jsonx", "binx"] {
             assert_eq!(part_of(n), None, "{n}");
+        }
+    }
+
+    #[test]
+    fn truthcoin_019_set_aside_and_its_program_go_with_truthcoin() {
+        // After the move to 0.20: 0.19's chain and wallet in node/set-aside-0.19/, both programs in bin/.
+        for env in [false, true] {
+            let t = setup();
+            for f in [
+                "bin/truthcoin_dc-0.20.0",
+                "node/app-format",
+                "node/set-aside-0.19/wallet.mdb/data.mdb",
+                "node/set-aside-0.19/data.mdb/data.mdb",
+                "node/set-aside-0.19/wallet-ready",
+                "node/set-aside-0.19/trades.json",
+            ] {
+                std::fs::create_dir_all(t.app.join(f).parent().unwrap()).unwrap();
+                std::fs::write(t.app.join(f), b"x").unwrap();
+            }
+            let p = places(&t, false, env);
+            let plan = plan_items(&p).unwrap();
+            let data = plan.iter().find(|i| i.id == "node-data").expect("node data listed");
+            assert!(data.note.contains("Truthcoin 0.19's chain and wallet"), "{}", data.note);
+            assert!(plan.iter().any(|i| i.id == "node-program"), "both programs, so bin/ is listed (env {env})");
+            let done = execute(&p, &[Part::Truthcoin], &shown(&plan)).unwrap();
+            assert!(done.errors.is_empty(), "{:?}", done.errors);
+            assert!(!t.app.join("node").exists() && !t.app.join("bin").exists(), "env {env}");
+            assert!(t.app.join("settings.json").exists(), "the app's own files stay");
         }
     }
 

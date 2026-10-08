@@ -42,7 +42,7 @@
     if (!adv) return;
     err = "";
     try {
-      await api.advancedSet({ ...adv, rpc_port: Number(adv.rpc_port), zmq_port: Number(adv.zmq_port) });
+      await api.advancedSet({ ...adv, rpc_port: Number(adv.rpc_port) });
       advSaved = true;
     } catch (e) {
       err = errText(e);
@@ -113,10 +113,7 @@
         </div>
       {/if}
       <EnforcerAddress bind:address={adv.enforcer} />
-      <div class="row">
-        <div class="field" style="flex:1"><label for="rp">RPC port</label><input id="rp" bind:value={adv.rpc_port} inputmode="numeric" /></div>
-        <div class="field" style="flex:1"><label for="zp">ZMQ port</label><input id="zp" bind:value={adv.zmq_port} inputmode="numeric" /></div>
-      </div>
+      <div class="field"><label for="rp">RPC port</label><input id="rp" bind:value={adv.rpc_port} inputmode="numeric" /></div>
       <div class="field"><label for="pa">Peer-to-peer address</label><input id="pa" bind:value={adv.p2p_addr} /></div>
       {#if node.wallet_host}<p class="small muted">The node's wallet calls are on <code>{node.wallet_host}</code>{node.wallet_host === "127.0.0.1" ? " (a web page could find it by scanning)" : ", a random local address"}.</p>{/if}
       <button on:click={saveAdv}>Save</button>

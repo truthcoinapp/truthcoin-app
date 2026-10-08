@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One market's whole life on the dev stack (dev/stack.sh, started fresh): create it with a new binary decision, buy,
-# sell, vote, and watch it settle and pay out. Checked by hand 2026-10-04 on truthcoin_dc v0.19.0; each step says what
-# it showed then.
+# sell, vote, and watch it settle and pay out. Checked by hand 2026-10-04 on truthcoin_dc v0.19.0 and 2026-10-08 on
+# v0.20.0 (L2L's release); each step says what it showed.
 #
 #   dev/lifecycle.sh <TC_WORK>/stack.env
 set -euo pipefail
@@ -31,7 +31,7 @@ q=$(tc market_buy "[{\"market_id\":\"$M\",\"outcome_index\":1,\"shares_amount\":
 cost=$(echo "$q" | field '["cost_sats"]')
 tc market_buy "[{\"market_id\":\"$M\",\"outcome_index\":1,\"shares_amount\":100000,\"max_cost\":$((cost + 1000 + 1000))}]" >/dev/null
 # While it waits, the wallet shows almost nothing: a trade spends a whole coin and gets its change at block connection.
-ok "bought, pending; balance meanwhile $(tc bitcoin_balance | field '["total_sats"]') sats"
+ok "bought, pending; balance meanwhile $(tc balance | field '["total_sats"]') sats"
 bmm 1
 
 # 3. The shares sit at the address the wallet picked (not get_wallet_addresses()[0]): look at every address.
@@ -60,4 +60,4 @@ n=0; until [ "$(tc market_get "[\"$M\"]" | field '["state"]')" = settled ]; do
     bmm 1; n=$((n + 1)); [ $n -ge 30 ] && die "not settled after 30 blocks"
 done
 ok "settled at height $(tc getblockcount): $(tc market_get "[\"$M\"]" | field '["resolution"]["summary"]')"
-ok "shares paid out automatically: positions $(tc market_positions "[\"$holder\", \"$M\"]" | field '["positions"]'), balance $(tc bitcoin_balance | field '["total_sats"]') sats"
+ok "shares paid out automatically: positions $(tc market_positions "[\"$holder\", \"$M\"]" | field '["positions"]'), balance $(tc balance | field '["total_sats"]') sats"

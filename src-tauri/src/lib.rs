@@ -105,6 +105,17 @@ pub fn run() {
             let phone = Arc::new(phone::Phone::new(&dir, node.clone(), trades.clone())?);
             let st = Arc::new(AppState { dir: dir.clone(), node: node.clone(), trades, new_words: Mutex::new(None), phone });
             {
+                // Truthcoin 0.19's wallet set aside for 0.20 (node/mod.rs): what the app holds about it goes too.
+                let w = Arc::downgrade(&st);
+                let _ = node.on_set_aside.set(Box::new(move || {
+                    if let Some(st) = w.upgrade() {
+                        st.trades.forget_all();
+                        st.phone.forget_wallet();
+                        markets::forget_holdings();
+                    }
+                }));
+            }
+            {
                 // Phones paired earlier are served from the start.
                 let p = st.phone.clone();
                 tauri::async_runtime::spawn(async move { p.ensure_running() });

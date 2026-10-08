@@ -12,7 +12,7 @@
 #                             as truthcoin-dc's own integration tests do (integration_tests/setup.rs, bmm_single)
 #   l1 N                      N L1 blocks only (through the enforcer, which ACKs proposals and bundles)
 #
-# Binaries (overrides): TC_BIN (truthcoin_dc; default dev/bin/truthcoin-0.19.0-x86_64-unknown-linux-gnu, from
+# Binaries (overrides): TC_BIN (truthcoin_dc 0.20; default dev/bin/truthcoin-0.20.0-x86_64-unknown-linux-gnu, from
 # github.com/LayerTwo-Labs/truthcoin-dc/releases), TC_L1_BIN (dir with bitcoind and bitcoin-cli, eCash betanet
 # v31.1.0), TC_ENFORCER, TC_GRPCURL. Ports: TC_PORT_BASE (default: the first free block of 10 from 23400).
 #
@@ -21,7 +21,7 @@
 # $TRUTHCOIN_APP_DIR/node.json) and `appbmm [N]` (N Truthcoin blocks mined through it).
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-TC_BIN=${TC_BIN:-$HERE/bin/truthcoin-0.19.0-x86_64-unknown-linux-gnu}
+TC_BIN=${TC_BIN:-$HERE/bin/truthcoin-0.20.0-x86_64-unknown-linux-gnu}
 TC_L1_BIN=${TC_L1_BIN:-$HERE/bin/ecash}
 TC_ENFORCER=${TC_ENFORCER:-$HERE/bin/bip300301_enforcer}
 TC_GRPCURL=${TC_GRPCURL:-$HOME/.local/bin/grpcurl}
@@ -32,9 +32,10 @@ while [ $# -gt 0 ]; do
         *) echo "usage: $0 [--deposit COINS]"; exit 2 ;;
     esac
 done
-for b in "$TC_BIN" "$TC_L1_BIN/bitcoind" "$TC_L1_BIN/bitcoin-cli" "$TC_ENFORCER" "$TC_GRPCURL"; do
+for b in "$TC_L1_BIN/bitcoind" "$TC_L1_BIN/bitcoin-cli" "$TC_ENFORCER" "$TC_GRPCURL"; do
     [ -x "$b" ] || { echo "missing: $b"; exit 2; }
 done
+[ "${TC_NO_NODE:-0}" = 1 ] || [ -x "$TC_BIN" ] || { echo "missing: $TC_BIN"; exit 2; }
 
 free() { ! (exec 3<>/dev/tcp/127.0.0.1/$1) 2>/dev/null; }
 if [ -z "${TC_PORT_BASE:-}" ]; then
@@ -46,7 +47,7 @@ if [ -z "${TC_PORT_BASE:-}" ]; then
 fi
 L1_RPC=$TC_PORT_BASE; L1_P2P=$((TC_PORT_BASE + 1)); L1_ZMQ=$((TC_PORT_BASE + 2))
 ENF_GRPC=$((TC_PORT_BASE + 3)); ENF_RPC=$((TC_PORT_BASE + 4))
-TC_RPC=$((TC_PORT_BASE + 5)); TC_P2P=$((TC_PORT_BASE + 6)); TC_ZMQ=$((TC_PORT_BASE + 7))
+TC_RPC=$((TC_PORT_BASE + 5)); TC_P2P=$((TC_PORT_BASE + 6))
 
 TC_WORK=${TC_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/tc-stack.XXXXXX")}
 L1_DIR=$TC_WORK/l1; ENF_DIR=$TC_WORK/enforcer; TC_DIR=$TC_WORK/truthcoin
@@ -144,9 +145,11 @@ appbmm() {
 }
 if [ "${TC_NO_NODE:-0}" != 1 ]; then
 # --- truthcoin_dc, regtest, decision periods of 10 blocks ---
+# The wallet's calls on the same port: the node serves them on a port of their own (6013 by default) unless the two
+# addresses are the same.
 setsid nohup "$TC_BIN" --headless --network regtest --datadir "$TC_DIR" \
-    --mainchain-grpc-host 127.0.0.1 --mainchain-grpc-port $ENF_GRPC \
-    --rpc-host 127.0.0.1 --rpc-port $TC_RPC --net-addr 127.0.0.1:$TC_P2P --zmq-addr 127.0.0.1:$TC_ZMQ \
+    --mainchain-grpc-url "http://127.0.0.1:$ENF_GRPC" --rpc-addr "127.0.0.1:$TC_RPC" \
+    --private-rpc-addr "127.0.0.1:$TC_RPC" --net-addr "127.0.0.1:$TC_P2P" \
     --decision-config-testing 10 --log-level info \
     </dev/null >> "$TC_WORK/truthcoin.out" 2>&1 &
 echo $! > "$TC_WORK/tc.pid"
@@ -169,7 +172,7 @@ if [ "$DEPOSIT" != 0 ]; then
         || fail "CreateDepositTransaction"
     l1 1
     bmm 2 || fail "BMM"
-    say "deposited $DEPOSIT coins to $ADDR: balance $(tc bitcoin_balance)"
+    say "deposited $DEPOSIT coins to $ADDR: balance $(tc balance)"
 fi
 
 fi

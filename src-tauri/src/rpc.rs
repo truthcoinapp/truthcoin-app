@@ -1,6 +1,6 @@
 //! The Truthcoin node's JSON-RPC (truthcoin_dc, L2L). Our own client, written from the node's documented calls; none
-//! of L2L's code is used. The node serves read-only calls on its RPC port and, because the app starts it with
-//! `--private-rpc-port`, the wallet and node-control calls on a second port that only this app knows. Neither port
+//! of L2L's code is used. The node serves read-only calls on its RPC port and, because the app starts it with a
+//! private RPC address, the wallet and node-control calls on a second port that only this app knows. Neither port
 //! has a login: anything on this computer that finds them can call them (VERIFY.md says so).
 
 use serde::de::DeserializeOwned;

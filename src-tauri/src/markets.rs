@@ -1,9 +1,9 @@
 //! Markets and trading, shared by the desktop's screens and the phone link.
 //!
-//! What the node taught us (truthcoin_dc v0.19.0, checked on a private chain):
-//! - A buy's cap (`max_cost`) must cover the quote **and** the 1,000-sat miner fee: the node's RPC accepts a cap that
-//!   only covers the quote, but its block builder then skips the trade every block, and the coin it spent stays tied
-//!   up. So every cap here is at least quote + miner fee + a margin for the price moving.
+//! What the node taught us (truthcoin_dc v0.19.0 and v0.20.0, checked on a private chain):
+//! - A buy's cap (`max_cost`) must cover the quote **and** the 1,000-sat miner fee: v0.19.0's RPC accepted a cap that
+//!   only covered the quote, and its block builder then skipped the trade every block, with the coin it spent tied
+//!   up; v0.20.0 refuses such a cap. So every cap here is at least quote + miner fee + a margin for the price moving.
 //! - A trade spends a whole coin and has no outputs until its block: while it waits the balance can look empty.
 //! - Shares land at an address the node picks, so positions are read for every wallet address, and a sell names the
 //!   address that holds the shares.
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-/// The miner fee every trade pays, in sats (truthcoin_dc v0.19.0).
+/// The miner fee every trade pays, in sats (truthcoin_dc v0.19.0 and v0.20.0).
 pub const MINER_FEE: u64 = 1_000;
 /// The largest trade the app places, in share units (1 sat each if they win): 1,000 coins.
 pub const MAX_SHARES: u64 = 100_000_000_000;
@@ -90,7 +90,7 @@ pub struct Holding {
 /// The last positions read, for a few seconds: each read costs one node call per wallet address (review L6).
 static HOLDINGS: std::sync::Mutex<Option<(std::time::Instant, Vec<Holding>)>> = std::sync::Mutex::new(None);
 
-fn forget_holdings() {
+pub fn forget_holdings() {
     *HOLDINGS.lock().unwrap() = None;
 }
 
@@ -273,9 +273,9 @@ fn fee_ok(m: &Value, amount: u64, fee: u64) -> bool {
     (0.0..=0.1).contains(&rate) && fee <= ((rate * amount as f64).ceil() as u64 + 1).max(1_000)
 }
 
-/// Did the node refuse a trade before sending it? In truthcoin_dc v0.19.0, `market_buy` and `market_sell` fail with
-/// these messages before anything goes out; only the last step (`sign_and_send`) can fail after the trade reached the
-/// mempool and peers. Anything else is treated as "may have gone through" (review L1).
+/// Did the node refuse a trade before sending it? In truthcoin_dc v0.19.0 and v0.20.0, `market_buy` and `market_sell`
+/// fail with these messages before anything goes out; only the last step (`sign_and_send`) can fail after the trade
+/// reached the mempool and peers. Anything else is treated as "may have gone through" (review L1).
 pub fn refused_before_sending(code: i64, message: &str) -> bool {
     if (-32700..=-32600).contains(&code) {
         return true; // JSON-RPC parse, request, method and params errors: nothing ran

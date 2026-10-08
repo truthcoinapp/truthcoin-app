@@ -3,7 +3,7 @@
 //! This app's own signed release then vouches for the pin: a download that doesn't match is never run. A newer node
 //! comes with a newer app.
 
-pub const NODE_VERSION: &str = "0.19.0";
+pub const NODE_VERSION: &str = "0.20.0";
 
 pub struct Pin {
     pub target: &'static str,
@@ -12,25 +12,25 @@ pub struct Pin {
     pub sha256: &'static str,
 }
 
-/// github.com/LayerTwo-Labs/truthcoin-dc/releases/tag/v0.19.0 (published 2026-09-29), hashed 2026-10-04.
+/// github.com/LayerTwo-Labs/truthcoin-dc/releases/tag/v0.20.0 (published 2026-10-08), hashed 2026-10-08.
 pub const PINS: &[Pin] = &[
     Pin {
         target: "x86_64-unknown-linux-gnu",
-        file: "truthcoin-0.19.0-x86_64-unknown-linux-gnu",
-        size: 56_331_096,
-        sha256: "31604f5e306bca15b38df27c8ca454f87acc4fb435350f0e16bf22347b47a838",
+        file: "truthcoin-0.20.0-x86_64-unknown-linux-gnu",
+        size: 55_623_304,
+        sha256: "c69c7f50dec18e4bf6ee798e64d9d0a4baae2090a0f93474cd4530cf20b19d1e",
     },
     Pin {
         target: "x86_64-apple-darwin",
-        file: "truthcoin-0.19.0-x86_64-apple-darwin",
-        size: 42_063_712,
-        sha256: "7aa3f04f87189bf61c0c5e98f5ff482b33e5b9f5f9e47d72c40020e00ae83764",
+        file: "truthcoin-0.20.0-x86_64-apple-darwin",
+        size: 41_803_668,
+        sha256: "ddf9220013b40c92d3385b9e0d3bcf875dc57c4e399101c6684bcf37aa88f4d7",
     },
     Pin {
         target: "aarch64-apple-darwin",
-        file: "truthcoin-0.19.0-aarch64-apple-darwin",
-        size: 40_957_792,
-        sha256: "3763adf22257e6a022f89509bc62c50c583a984bdf02ecd05e0268724a5693f0",
+        file: "truthcoin-0.20.0-aarch64-apple-darwin",
+        size: 40_450_336,
+        sha256: "a7e2bc8636d6967d2a1a18ffcedcd7aabd82bc265e346324d5079994d4fc605f",
     },
 ];
 

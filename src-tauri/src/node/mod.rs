@@ -3,8 +3,12 @@
 //! BitWindow provides the rest of the stack: eCash's node and the enforcer, whose gRPC the node follows.
 //!
 //! Ports: the read-only RPC on `rpc_port` (16013 by default, so a Truthcoin that BitWindow runs on 6013 never
-//! clashes), the wallet and node-control calls on a private port picked at random at each start, P2P on `p2p_addr`,
-//! ZMQ on `zmq_port`. The child is watched by a thread of its own; on Linux it is told to stop if the app dies.
+//! clashes), the wallet and node-control calls on a private port picked at random at each start, P2P on `p2p_addr`.
+//! The child is watched by a thread of its own; on Linux it is told to stop if the app dies.
+//!
+//! Truthcoin 0.20 can't read what 0.19 wrote, the wallet included. Before it first starts in a folder 0.19 used, the
+//! app moves 0.19's data into `node/set-aside-0.19/` (`set_aside_old_data`), until Obliterate removes it with the rest
+//! of `node/`.
 
 pub mod enforcer;
 pub mod install;
@@ -51,7 +55,17 @@ pub struct Node {
     op: tokio::sync::Mutex<()>,
     /// "Obliterate" is removing Truthcoin: no start or install until it is done (obliterate.rs).
     pub removing: std::sync::atomic::AtomicBool,
+    /// Told when 0.19's data was set aside, so what the app holds about that wallet goes too (lib.rs).
+    pub on_set_aside: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
+
+/// Where 0.19's data goes inside `node/` when 0.20 first starts there.
+pub const SET_ASIDE: &str = "set-aside-0.19";
+/// Written in `node/` once 0.20 uses it.
+const FORMAT_FILE: &str = "app-format";
+const FORMAT_V20: &str = "0.20";
+/// What the app records about the wallet beside `node/`, which goes with 0.19's data.
+const WALLET_RECORDS: &[&str] = &["wallet-ready", "trades.json", "withdrawals.json", "deposits.json"];
 
 /// The node this app started: its pid and program (so a later launch can stop one left by a crash) and its ports
 /// (so a developer's scripts can reach it). Owner-only.
@@ -79,6 +93,7 @@ impl Node {
             install: Mutex::new(Default::default()),
             op: tokio::sync::Mutex::new(()),
             removing: std::sync::atomic::AtomicBool::new(false),
+            on_set_aside: std::sync::OnceLock::new(),
         }
     }
 
@@ -143,6 +158,12 @@ impl Node {
         install::check_installed(&self.dir)
     }
 
+    /// 0.19's data, if it was set aside (for Setup's notice).
+    pub fn set_aside_path(&self) -> Option<PathBuf> {
+        let p = self.datadir().join(SET_ASIDE);
+        p.is_dir().then_some(p)
+    }
+
     pub fn installed(&self) -> bool {
         self.settings().locked().node_binary.is_some() || install::installed_path(&self.dir).exists()
     }
@@ -198,6 +219,12 @@ impl Node {
             crate::activity::note(&self.dir, "random local addresses refused: the wallet's calls are on 127.0.0.1");
         }
         let datadir = self.datadir();
+        if let Some(to) = set_aside_old_data(&self.dir).map_err(|e| format!("Can't set Truthcoin 0.19's data aside: {e}"))? {
+            crate::activity::note(&self.dir, &format!("Truthcoin 0.19's data and wallet set aside in {}", to.display()));
+            if let Some(f) = self.on_set_aside.get() {
+                f();
+            }
+        }
         crate::files::private_dir(&datadir).map_err(|e| e.to_string())?;
         let log = self.log_path();
         if log.exists() {
@@ -213,11 +240,10 @@ impl Node {
             .args(["--network", &s.network])
             .arg("--datadir")
             .arg(&datadir)
-            .args(["--mainchain-grpc-host", &eh, "--mainchain-grpc-port", &ep.to_string()])
-            .args(["--rpc-host", "127.0.0.1", "--rpc-port", &s.rpc_port.to_string()])
-            .args(["--private-rpc-host", &private_host, "--private-rpc-port", &private_port.to_string()])
+            .args(["--mainchain-grpc-url", &grpc_url(&eh, ep)])
+            .args(["--rpc-addr", &format!("127.0.0.1:{}", s.rpc_port)])
+            .args(["--private-rpc-addr", &format!("{private_host}:{private_port}")])
             .args(["--net-addr", &s.p2p_addr])
-            .args(["--zmq-addr", &format!("127.0.0.1:{}", s.zmq_port)])
             .args(&s.node_args)
             // Info logs only, whatever the environment: at trace level the node logs every RPC request and answer,
             // the recovery words among them (review L4).
@@ -252,7 +278,7 @@ impl Node {
                 return Err(format!("The node stopped while starting: {msg}\n{}", self.log_tail(15)));
             }
             if rpc.public::<u64>("getblockcount", json!([])).await.is_ok()
-                && rpc.private::<Value>("bitcoin_balance", json!([])).await.is_ok()
+                && rpc.private::<Value>("balance", json!([])).await.is_ok()
             {
                 return Ok(());
             }
@@ -402,6 +428,54 @@ fn spawn_watched(mut cmd: std::process::Command, exited: Arc<Mutex<Option<String
 }
 
 /// For Obliterate: stop a node a crash left behind on this data folder.
+/// The enforcer's gRPC as a URL (`--mainchain-grpc-url`), with an IPv6 address in brackets.
+fn grpc_url(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
+    }
+}
+
+/// Before 0.20 first uses `<dir>/node`: anything 0.19 left there (the chain and the wallet, which
+/// 0.20 refuses to open) goes into `node/set-aside-0.19/`, and so do the app's records of that wallet. Nothing is
+/// deleted. Returns where it went, when anything did. Once 0.20 has the folder, `app-format` says so.
+fn set_aside_old_data(dir: &Path) -> std::io::Result<Option<PathBuf>> {
+    let node = dir.join("node");
+    let format = node.join(FORMAT_FILE);
+    if std::fs::read_to_string(&format).is_ok_and(|f| f.trim() == FORMAT_V20) {
+        return Ok(None);
+    }
+    let keep = |n: &str| n == SET_ASIDE || n == FORMAT_FILE || n.starts_with("app-node.log");
+    let mut old: Vec<PathBuf> = match std::fs::read_dir(&node) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok())
+            .filter(|e| !keep(&e.file_name().to_string_lossy()))
+            .map(|e| e.path())
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => vec![],
+        Err(e) => return Err(e),
+    };
+    let to = node.join(SET_ASIDE);
+    if !old.is_empty() {
+        old.extend(WALLET_RECORDS.iter().map(|r| dir.join(r)).filter(|r| r.symlink_metadata().is_ok()));
+        crate::files::private_dir(&to)?;
+        for from in &old {
+            let name = from.file_name().unwrap_or_default();
+            let mut dest = to.join(name);
+            let mut n = 2;
+            while dest.symlink_metadata().is_ok() {
+                dest = to.join(format!("{}-{n}", name.to_string_lossy()));
+                n += 1;
+            }
+            std::fs::rename(from, &dest)?;
+        }
+    }
+    crate::files::private_dir(&node)?;
+    crate::files::write_private(&format, FORMAT_V20.as_bytes())?;
+    Ok((!old.is_empty()).then_some(to))
+}
+
 pub async fn stop_leftover_in(dir: &Path) {
     stop_leftover(dir).await
 }
@@ -512,5 +586,54 @@ mod tests {
         assert!((0..5).any(|_| port_free(free_port().unwrap())));
         let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         assert!(!port_free(held.local_addr().unwrap().port()));
+    }
+
+    #[test]
+    fn the_enforcer_is_given_as_a_url() {
+        assert_eq!(grpc_url("127.0.0.1", 50051), "http://127.0.0.1:50051");
+        assert_eq!(grpc_url("fd7a:115c::1", 50051), "http://[fd7a:115c::1]:50051");
+    }
+
+    #[test]
+    fn data_from_019_is_set_aside_once_and_nothing_is_deleted() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path();
+        // A new install: nothing to set aside; the folder is marked as 0.20's.
+        let fresh = dir.join("fresh");
+        assert_eq!(set_aside_old_data(&fresh).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(fresh.join("node").join(FORMAT_FILE)).unwrap(), FORMAT_V20);
+
+        // A folder 0.19 used: its data and the wallet's records move into node/set-aside-0.19/; the node's log stays.
+        let node = dir.join("node");
+        std::fs::create_dir_all(node.join("data.mdb")).unwrap();
+        std::fs::write(node.join("data.mdb").join("data.mdb"), b"chain").unwrap();
+        std::fs::create_dir_all(node.join("wallet.mdb")).unwrap();
+        std::fs::write(node.join("app-node.log"), b"log").unwrap();
+        for r in ["wallet-ready", "trades.json", "withdrawals.json"] {
+            std::fs::write(dir.join(r), r.as_bytes()).unwrap();
+        }
+        std::fs::write(dir.join("settings.json"), b"{}").unwrap();
+        let to = set_aside_old_data(dir).unwrap().expect("set aside");
+        assert_eq!(to, node.join(SET_ASIDE));
+        assert_eq!(std::fs::read(to.join("data.mdb").join("data.mdb")).unwrap(), b"chain");
+        assert!(to.join("wallet.mdb").is_dir() && to.join("wallet-ready").is_file() && to.join("trades.json").is_file());
+        assert!(!node.join("data.mdb").exists() && !dir.join("wallet-ready").exists() && !dir.join("trades.json").exists());
+        assert!(node.join("app-node.log").is_file() && dir.join("settings.json").is_file());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&to).unwrap().permissions().mode() & 0o777, 0o700);
+        }
+
+        // Once 0.20 has the folder, what it writes stays where it is.
+        std::fs::create_dir_all(node.join("data.mdb")).unwrap();
+        std::fs::write(dir.join("wallet-ready"), b"").unwrap();
+        assert_eq!(set_aside_old_data(dir).unwrap(), None);
+        assert!(node.join("data.mdb").is_dir() && dir.join("wallet-ready").is_file());
+
+        // Interrupted before the mark: a second pass adds to the same folder, renaming what would clash.
+        std::fs::remove_file(node.join(FORMAT_FILE)).unwrap();
+        assert_eq!(set_aside_old_data(dir).unwrap(), Some(to.clone()));
+        assert!(to.join("data.mdb").is_dir() && to.join("data.mdb-2").is_dir() && to.join("wallet-ready-2").is_file());
     }
 }

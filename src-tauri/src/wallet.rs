@@ -72,15 +72,7 @@ pub struct WithdrawalView {
 
 /// The value of an output's content: plain coins, and a withdrawal's value, from the node's JSON.
 fn content_value(c: &Value) -> (u64, u64) {
-    if let Some(n) = c["BitcoinSats"].as_u64().or_else(|| c["Bitcoin"].as_u64()) {
-        return (n, 0);
-    }
-    let w = c.as_object().and_then(|o| o.iter().find(|(k, _)| k.contains("Withdrawal")).map(|(_, v)| v.clone()));
-    if let Some(w) = w {
-        let v = w["value"].as_u64().or_else(|| w["value_sats"].as_u64()).or_else(|| w["amount"].as_u64()).unwrap_or(0);
-        return (0, v);
-    }
-    (0, 0)
+    (c["Value"].as_u64().unwrap_or(0), c["Withdrawal"]["value_sats"].as_u64().unwrap_or(0))
 }
 
 /// Coins and withdrawals among the wallet's outputs.
@@ -159,7 +151,7 @@ pub async fn wallet_status(st: St<'_>) -> Result<WalletStatus, String> {
 
 /// The balance as people read it (UX review B1), for the desktop and the phone.
 pub async fn balance(rpc: &crate::rpc::Rpc, trades: &crate::trades::Trades) -> Result<WalletStatus, String> {
-    let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
+    let b: Value = rpc.private("balance", json!([])).await?;
     let _ = markets::refresh(rpc, trades).await;
     let tied = markets::tied_up(rpc, trades).await;
     let open: Vec<crate::trades::Trade> =
@@ -191,7 +183,7 @@ pub const USEFUL_COIN: u64 = 10_000;
 /// How many coins of at least USEFUL_COIN the wallet has.
 pub async fn coins(rpc: &crate::rpc::Rpc) -> Result<usize, String> {
     let u: Vec<Value> = rpc.private("get_wallet_utxos", json!([])).await?;
-    Ok(u.iter().filter(|c| c["output"]["content"]["BitcoinSats"].as_u64().unwrap_or(0) >= USEFUL_COIN).count())
+    Ok(u.iter().filter(|c| content_value(&c["output"]["content"]).0 >= USEFUL_COIN).count())
 }
 
 /// Split what the wallet has into `parts` equal coins at new addresses of its own, so that many trades can wait for a
@@ -200,7 +192,7 @@ pub async fn split(rpc: &crate::rpc::Rpc, parts: u32) -> Result<Value, String> {
     if !(2..=8).contains(&parts) {
         return Err("Split into 2 to 8 coins".into());
     }
-    let b: Value = rpc.private("bitcoin_balance", json!([])).await?;
+    let b: Value = rpc.private("balance", json!([])).await?;
     let available = b["available_sats"].as_u64().unwrap_or(0);
     let fee = 1_000;
     let each = available.saturating_sub(fee * 3) / parts as u64;
@@ -212,7 +204,7 @@ pub async fn split(rpc: &crate::rpc::Rpc, parts: u32) -> Result<Value, String> {
         let a: String = rpc.private("get_new_address", json!([])).await?;
         dests.insert(a, json!(each));
     }
-    Ok(rpc.private("transfer_many", json!([dests, fee])).await?)
+    Ok(rpc.private("create_transfer_many", json!([dests, fee])).await?)
 }
 
 #[tauri::command]
@@ -398,6 +390,16 @@ mod tests {
         let d = super::deposit_form("o51yVMf5cJZr7A5nWWBBzcLLDJt");
         assert!(d.starts_with("s13_o51yVMf5cJZr7A5nWWBBzcLLDJt_") && d.len() == "s13_o51yVMf5cJZr7A5nWWBBzcLLDJt_".len() + 6);
     }
+
+    #[test]
+    fn coins_and_withdrawals_read_from_the_node() {
+        use serde_json::json;
+        let v = super::content_value;
+        assert_eq!(v(&json!({"Value": 5000})), (5000, 0));
+        let w = json!({"Withdrawal": {"value_sats": 7000, "main_fee_sats": 1000, "main_address": "tb1q"}});
+        assert_eq!(v(&w), (0, 7000));
+        assert_eq!(v(&json!({"MarketFunds": {"market_id": [0, 0, 0, 0, 0, 1], "amount": 9000, "is_fee": false}})), (0, 0));
+    }
 }
 
 /// A new address of BitWindow's eCash wallet (the enforcer's), to withdraw to.
@@ -432,7 +434,7 @@ pub async fn withdraw(
     if fee_sats > amount_sats.min(1_000_000) || mainchain_fee_sats > amount_sats.min(1_000_000) {
         return Err("Each fee must be under the amount, and at most 1,000,000 sats".into());
     }
-    let r: Value = rpc.private("withdraw", json!([address, amount_sats, fee_sats, mainchain_fee_sats])).await?;
+    let r: Value = rpc.private("create_withdrawal", json!([address, amount_sats, fee_sats, mainchain_fee_sats])).await?;
     crate::activity::note(&st.dir, &format!("withdrawal of {amount_sats} sats to eCash {}", crate::activity::mask(&address)));
     let mut l = all_withdrawals(&st.dir);
     l.push(Withdrawal {

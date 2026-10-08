@@ -62,6 +62,8 @@ pub struct NodeStatus {
     pub enforcer: EnforcerStatus,
     /// Where the node's wallet calls listen (a random 127.x.y.z on Linux; 127.0.0.1 elsewhere, or as a fallback).
     pub wallet_host: Option<String>,
+    /// Where Truthcoin 0.19's data and wallet went when the 0.20 node first started (node/mod.rs).
+    pub set_aside: Option<String>,
 }
 
 #[tauri::command]
@@ -106,6 +108,7 @@ pub async fn node_status(st: St<'_>) -> Result<NodeStatus, String> {
         uptime_secs: st.node.uptime_secs(),
         enforcer: e,
         wallet_host: st.node.wallet_host(),
+        set_aside: st.node.set_aside_path().map(|p| p.display().to_string()),
     })
 }
 
@@ -244,13 +247,12 @@ pub struct Advanced {
     pub enforcer: String,
     pub rpc_port: u16,
     pub p2p_addr: String,
-    pub zmq_port: u16,
 }
 
 #[tauri::command]
 pub fn settings_advanced(st: St<'_>) -> Advanced {
     let s = st.node.settings();
-    Advanced { network: s.network, enforcer: s.enforcer, rpc_port: s.rpc_port, p2p_addr: s.p2p_addr, zmq_port: s.zmq_port }
+    Advanced { network: s.network, enforcer: s.enforcer, rpc_port: s.rpc_port, p2p_addr: s.p2p_addr }
 }
 
 /// Change the node's network settings; they apply at its next start.
@@ -270,7 +272,6 @@ pub fn settings_advanced_set(st: St<'_>, a: Advanced) -> Result<(), String> {
     a.p2p_addr.parse::<std::net::SocketAddr>().map_err(|_| "the P2P address needs an IP and a port")?;
     n.rpc_port = a.rpc_port;
     n.p2p_addr = a.p2p_addr;
-    n.zmq_port = a.zmq_port;
     n.save(&st.dir).map_err(|e| e.to_string())?;
     *s = n;
     Ok(())

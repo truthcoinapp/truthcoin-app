@@ -26,7 +26,6 @@ pub struct Settings {
     pub rpc_port: u16,
     /// The node's peer-to-peer address (QUIC). Peers on the network reach it here.
     pub p2p_addr: String,
-    pub zmq_port: u16,
     /// A node program of your own, used instead of the release the app downloads and checks (developers).
     pub node_binary: Option<PathBuf>,
     /// Extra arguments for the node (developers), e.g. ["--decision-config-testing", "10"].
@@ -48,7 +47,6 @@ impl Default for Settings {
             enforcer: "127.0.0.1:50051".into(),
             rpc_port: 16013,
             p2p_addr: "0.0.0.0:14013".into(),
-            zmq_port: 16015,
             node_binary: None,
             node_args: vec![],
             relays: DEFAULT_RELAYS.iter().map(|s| s.to_string()).collect(),

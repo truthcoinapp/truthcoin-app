@@ -41,9 +41,9 @@ your user only (`src-tauri/src/files.rs`).
   hashes it as it arrives, and keeps it (as `<app data>/bin/truthcoin_dc-<node version>`) only if size and hash
   match. It is hashed again before every start.
 - `mod.rs`: starts it as the app's child with `--datadir <app data>/node`, the read-only RPC on `127.0.0.1:16013`,
-  the wallet and node-control calls on a private port picked at random at each start (`--private-rpc-port`; on Linux
-  on a random address in `127.0.0.0/8`, elsewhere 127.0.0.1), P2P on `0.0.0.0:14013`, ZMQ on `127.0.0.1:16015` (all
-  in Settings › Advanced), and the enforcer's gRPC (`127.0.0.1:50051` by default; Setup and Settings › Advanced can
+  the wallet and node-control calls on a private port picked at random at each start (`--private-rpc-addr`; on Linux
+  on a random address in `127.0.0.0/8`, elsewhere 127.0.0.1), P2P on `0.0.0.0:14013` (both in Settings › Advanced),
+  and the enforcer's gRPC (`127.0.0.1:50051` by default; Setup and Settings › Advanced can
   point it at another computer, README, "eCash on another computer"). `<app data>/node.json` records its pid, program and ports, so a later launch can
   stop a node a crash left behind (only if that pid still runs the same program). On Linux the node is told to stop
   if the app dies; on every system it is stopped when the app quits. The node gets the app's environment without
@@ -108,12 +108,20 @@ does.)
 - Read-only port: `getblockcount`, `mainchain_sync_progress`, `list_peers`, `market_list`, `market_get`,
   `market_positions`, `list_mempool`, `get_transaction_info`, `decision_status`, `list_open_periods_with_pricing`,
   `calculate_initial_liquidity`, `get_utxos`, `get_stxos`.
-- Private port: `bitcoin_balance`, `get_wallet_addresses`, `get_wallet_utxos`, `get_new_address`,
+- Private port: `balance`, `get_wallet_addresses`, `get_wallet_utxos`, `get_new_address`,
   `get_voter_address`, `generate_mnemonic`, `set_seed_from_mnemonic`, `refresh_wallet`, `market_buy` and
-  `market_sell` (quotes with `dry_run`, then trades with a cap), `market_create`, `transfer_many` (only to the
-  wallet's own new addresses: "split coins"), `remove_from_mempool` (cancelling your own stuck trade), `withdraw`
-  (to an eCash address you type), `stop`.
+  `market_sell` (quotes with `dry_run`, then trades with a cap), `market_create`, `create_transfer_many` (only to the
+  wallet's own new addresses: "split coins"), `remove_from_mempool` (cancelling your own waiting trade),
+  `create_withdrawal` (to an eCash address you type), `stop`.
 - Nothing else: there is no generic "call the node" command.
+
+**From Truthcoin 0.19 to 0.20** (`node/mod.rs`, `set_aside_old_data`): 0.20 refuses the chain and wallet 0.19
+wrote, and the app runs only 0.20. Before 0.20 first starts in a folder 0.19 used, the app moves 0.19's files into
+`<app data>/node/set-aside-0.19/`, with its records of that wallet (`wallet-ready`, `trades.json`,
+`withdrawals.json`, `deposits.json`), and writes `node/app-format`. Nothing is deleted then. Obliterate removes that
+folder with the rest of `node/` (and asks first that you have the recovery words, as for any wallet), and the old
+0.19 program with the rest of `bin/`. 0.20 makes keys from the recovery words on another path, so the same words give
+other addresses there.
 
 **What a phone can do** (`src-tauri/src/phone/mod.rs`, `docs/PROTOCOL.md`): pair only with a live, single-use code
 and your yes on the desktop, after you compare a code on both screens; then `status`, `markets`, `market`,

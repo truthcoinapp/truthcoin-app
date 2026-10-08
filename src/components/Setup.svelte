@@ -184,6 +184,18 @@
 {:else if mode === "choose"}
   <div class="card">
     <h2>Your wallet</h2>
+    {#if node.set_aside}
+      <div class="notice" data-testid="set-aside">
+        <p>
+          <strong>Truthcoin's new node can't read the old chain or wallet.</strong> The app moved them aside, deleting
+          nothing: <code>{node.set_aside}</code>
+        </p>
+        <p class="small">
+          Make a new wallet, or type your recovery words again. With the new node the same words give new addresses, so
+          coins you held before don't show here. Obliterate removes the old folder with the rest.
+        </p>
+      </div>
+    {/if}
     <p>Make a new wallet, or bring one back from its recovery words.</p>
     <p class="small muted">
       Anything running on this computer could spend from this wallet: keep only what you're trading in it, and close the

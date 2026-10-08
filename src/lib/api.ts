@@ -32,6 +32,8 @@ export interface NodeStatus {
   rpc_port: number;
   uptime_secs: number | null;
   wallet_host: string | null;
+  /** Where Truthcoin 0.19's data and wallet were set aside when the 0.20 node first started. */
+  set_aside: string | null;
   enforcer: { address: string; remote: boolean; reachable: boolean; height: number; network: string; error: string | null };
 }
 
@@ -223,8 +225,8 @@ export const api = {
   nodeStart: () => invoke<void>("node_start"),
   nodeStop: () => invoke<void>("node_stop"),
   nodeLog: () => invoke<string>("node_log"),
-  advanced: () => invoke<{ network: string; enforcer: string; rpc_port: number; p2p_addr: string; zmq_port: number }>("settings_advanced"),
-  advancedSet: (a: { network: string; enforcer: string; rpc_port: number; p2p_addr: string; zmq_port: number }) =>
+  advanced: () => invoke<{ network: string; enforcer: string; rpc_port: number; p2p_addr: string }>("settings_advanced"),
+  advancedSet: (a: { network: string; enforcer: string; rpc_port: number; p2p_addr: string }) =>
     invoke<void>("settings_advanced_set", { a }),
   enforcerTest: (address: string) => invoke<EnforcerCheck>("enforcer_test", { address }),
   enforcerSet: (address: string) => invoke<string>("enforcer_set", { address }),
